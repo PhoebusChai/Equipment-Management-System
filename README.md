@@ -100,6 +100,12 @@ npm run dev
 
 访问开发地址（默认）：`http://localhost:5173`
 
+本地 Mock 登录账号（邮箱/密码）：
+
+- 学生：`student@example.com` / `123456`
+- 教师：`teacher@example.com` / `123456`
+- 管理员：`admin@example.com` / `123456`
+
 已完成内容：
 
 - Vue3 + JavaScript + Vite 工程化配置

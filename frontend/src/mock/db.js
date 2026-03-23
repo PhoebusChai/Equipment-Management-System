@@ -298,6 +298,26 @@ export function listApplications() {
   return getDb().applications.slice().sort((a, b) => (b.id || 0) - (a.id || 0));
 }
 
+export function createApplication(payload) {
+  const db = deepClone(getDb());
+  const now = nowIso();
+  const app = {
+    id: nextId(db.applications),
+    type: payload.type,
+    createdByUserId: payload.createdByUserId,
+    title: payload.title || "未命名申请",
+    detail: payload.detail || "",
+    status: "submitted",
+    reviewedByUserId: null,
+    reviewNote: "",
+    createdAt: now,
+    updatedAt: now
+  };
+  db.applications.push(app);
+  setDb(db);
+  return app;
+}
+
 export function updateApplicationStatus(appId, status, patch = {}) {
   const db = deepClone(getDb());
   const idx = db.applications.findIndex((a) => a.id === appId);
