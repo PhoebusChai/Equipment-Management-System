@@ -2,24 +2,18 @@
 import { computed, onMounted, ref, watch } from "vue";
 import { useRoute } from "vue-router";
 import { ElMessage } from "element-plus";
-import { findUserByEmail, getCurrentUser, listBookings, updateBookingStatus } from "../../mock/db";
-import { useMockDb } from "../../composables/useMockDb";
-
-useMockDb();
+import { BOOKING_STATUS, listBookingsApi, updateBookingStatusApi } from "../../services/bookings";
+import { getCurrentUser } from "../../services/session";
 
 const route = useRoute();
 
-const filterStatus = ref("pending");
+const filterStatus = ref(BOOKING_STATUS.PENDING);
 const filterResourceType = ref("all");
 const keyword = ref("");
 
 const currentUser = computed(() => getCurrentUser());
-const currentDbUser = computed(() => (currentUser.value ? findUserByEmail(currentUser.value.email) : null));
-
-onMounted(() => {
-  const q = route.query.q || route.query.keyword;
-  if (typeof q === "string" && q.trim()) keyword.value = q.trim();
-});
+const currentDbUser = computed(() => currentUser.value || null);
+const bookingList = ref([]);
 
 watch(
   () => route.query.q || route.query.keyword,
@@ -38,22 +32,24 @@ function formatShort(iso) {
   return `${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
 }
 
-const allBookings = computed(() => {
-  if (!currentDbUser.value) return [];
-  return listBookings({ role: "teacher", userId: currentDbUser.value.id })
-    .slice()
-    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-});
+const allBookings = computed(() =>
+  bookingList.value.slice().sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+);
+
+async function loadBookings() {
+  if (!currentDbUser.value?.id) return;
+  bookingList.value = await listBookingsApi({ approverId: currentDbUser.value.id });
+}
 
 const stats = computed(() => {
   const list = allBookings.value;
   return {
     total: list.length,
-    pending: list.filter((b) => b.status === "pending").length,
-    emergencyPending: list.filter((b) => b.status === "pending" && b.isEmergency).length,
-    approved: list.filter((b) => b.status === "approved").length,
-    completed: list.filter((b) => b.status === "completed").length,
-    rejected: list.filter((b) => b.status === "rejected").length
+    pending: list.filter((b) => b.status === BOOKING_STATUS.PENDING).length,
+    emergencyPending: list.filter((b) => b.status === BOOKING_STATUS.PENDING && b.isEmergency).length,
+    approved: list.filter((b) => b.status === BOOKING_STATUS.APPROVED).length,
+    completed: list.filter((b) => b.status === BOOKING_STATUS.COMPLETED).length,
+    rejected: list.filter((b) => b.status === BOOKING_STATUS.REJECTED).length
   };
 });
 
@@ -75,12 +71,12 @@ const filtered = computed(() => {
 });
 
 const statusFilters = [
-  { value: "pending", label: "待审核", short: "待审" },
+  { value: BOOKING_STATUS.PENDING, label: "待审核", short: "待审" },
   { value: "all", label: "全部", short: "全部" },
-  { value: "approved", label: "已确认", short: "已确认" },
-  { value: "completed", label: "已完成", short: "完成" },
-  { value: "rejected", label: "已驳回", short: "驳回" },
-  { value: "cancelled", label: "已取消", short: "取消" }
+  { value: BOOKING_STATUS.APPROVED, label: "已确认", short: "已确认" },
+  { value: BOOKING_STATUS.COMPLETED, label: "已完成", short: "完成" },
+  { value: BOOKING_STATUS.REJECTED, label: "已驳回", short: "驳回" },
+  { value: BOOKING_STATUS.CANCELLED, label: "已取消", short: "取消" }
 ];
 
 const reviewNoteMap = ref({});
@@ -93,51 +89,68 @@ function setNote(bookingId, val) {
   reviewNoteMap.value = { ...reviewNoteMap.value, [bookingId]: val };
 }
 
-function approve(bookingId) {
-  updateBookingStatus(bookingId, "approved", { reviewNote: getNote(bookingId) });
+async function approve(bookingId) {
+  await updateBookingStatusApi(bookingId, BOOKING_STATUS.APPROVED, {
+    approverId: currentDbUser.value.id,
+    reviewNote: getNote(bookingId)
+  });
+  await loadBookings();
   ElMessage.success("已通过该预约");
 }
 
-function reject(bookingId) {
-  updateBookingStatus(bookingId, "rejected", { reviewNote: getNote(bookingId) });
+async function reject(bookingId) {
+  await updateBookingStatusApi(bookingId, BOOKING_STATUS.REJECTED, {
+    approverId: currentDbUser.value.id,
+    reviewNote: getNote(bookingId)
+  });
+  await loadBookings();
   ElMessage.success("已驳回该预约");
 }
 
-function markCompleted(bookingId) {
-  updateBookingStatus(bookingId, "completed");
+async function markCompleted(bookingId) {
+  await updateBookingStatusApi(bookingId, BOOKING_STATUS.COMPLETED, {
+    approverId: currentDbUser.value.id
+  });
+  await loadBookings();
   ElMessage.success("已标记为完成");
 }
 
 const statusPillClass = (status) => {
-  if (status === "pending") return "bg-amber-100 text-amber-800 ring-1 ring-amber-200/60";
-  if (status === "approved") return "bg-emerald-100 text-emerald-800 ring-1 ring-emerald-200/60";
-  if (status === "rejected") return "bg-rose-100 text-rose-800 ring-1 ring-rose-200/60";
-  if (status === "cancelled") return "bg-red-100 text-red-800 ring-1 ring-red-200/60";
-  if (status === "completed") return "bg-slate-100 text-slate-700 ring-1 ring-slate-200/80";
+  if (status === BOOKING_STATUS.PENDING) return "bg-amber-100 text-amber-800 ring-1 ring-amber-200/60";
+  if (status === BOOKING_STATUS.APPROVED) return "bg-emerald-100 text-emerald-800 ring-1 ring-emerald-200/60";
+  if (status === BOOKING_STATUS.REJECTED) return "bg-rose-100 text-rose-800 ring-1 ring-rose-200/60";
+  if (status === BOOKING_STATUS.CANCELLED) return "bg-red-100 text-red-800 ring-1 ring-red-200/60";
+  if (status === BOOKING_STATUS.COMPLETED) return "bg-slate-100 text-slate-700 ring-1 ring-slate-200/80";
   return "bg-slate-100 text-slate-600";
 };
 
 const statusText = (status) => {
-  if (status === "pending") return "待审核";
-  if (status === "approved") return "已确认";
-  if (status === "rejected") return "已驳回";
-  if (status === "cancelled") return "已取消";
-  if (status === "completed") return "已完成";
+  if (status === BOOKING_STATUS.PENDING) return "待审核";
+  if (status === BOOKING_STATUS.APPROVED) return "已确认";
+  if (status === BOOKING_STATUS.REJECTED) return "已驳回";
+  if (status === BOOKING_STATUS.CANCELLED) return "已取消";
+  if (status === BOOKING_STATUS.COMPLETED) return "已完成";
   return status;
 };
 
 /** 卡片左侧强调条颜色 */
 function cardAccentClass(status) {
-  if (status === "pending") return "border-l-amber-400";
-  if (status === "approved") return "border-l-emerald-500";
-  if (status === "rejected") return "border-l-rose-500";
-  if (status === "cancelled") return "border-l-red-400";
-  if (status === "completed") return "border-l-slate-300";
+  if (status === BOOKING_STATUS.PENDING) return "border-l-amber-400";
+  if (status === BOOKING_STATUS.APPROVED) return "border-l-emerald-500";
+  if (status === BOOKING_STATUS.REJECTED) return "border-l-rose-500";
+  if (status === BOOKING_STATUS.CANCELLED) return "border-l-red-400";
+  if (status === BOOKING_STATUS.COMPLETED) return "border-l-slate-300";
   return "border-l-slate-200";
 }
 
 const chipBase =
   "inline-flex cursor-pointer items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition";
+
+onMounted(async () => {
+  const q = route.query.q || route.query.keyword;
+  if (typeof q === "string" && q.trim()) keyword.value = q.trim();
+  await loadBookings();
+});
 </script>
 
 <template>
@@ -304,7 +317,7 @@ const chipBase =
               class="flex shrink-0 flex-row gap-2 border-t border-slate-100 pt-4 lg:w-36 lg:flex-col lg:border-l lg:border-t-0 lg:pl-6 lg:pt-0"
             >
               <button
-                v-if="b.status === 'pending'"
+                v-if="b.status === BOOKING_STATUS.PENDING"
                 type="button"
                 class="btn-primary flex-1 px-4 py-2.5 text-sm shadow-sm lg:flex-none"
                 @click="approve(b.id)"
@@ -312,7 +325,7 @@ const chipBase =
                 通过
               </button>
               <button
-                v-if="b.status === 'pending'"
+                v-if="b.status === BOOKING_STATUS.PENDING"
                 type="button"
                 class="flex-1 rounded-lg border border-rose-200 bg-white px-4 py-2.5 text-sm font-medium text-rose-700 shadow-sm transition hover:bg-rose-50 lg:flex-none"
                 @click="reject(b.id)"
@@ -320,7 +333,7 @@ const chipBase =
                 驳回
               </button>
               <button
-                v-if="b.status === 'approved'"
+                v-if="b.status === BOOKING_STATUS.APPROVED"
                 type="button"
                 class="btn-secondary flex-1 border-slate-200 px-4 py-2.5 text-sm shadow-sm lg:flex-none"
                 @click="markCompleted(b.id)"
@@ -328,7 +341,7 @@ const chipBase =
                 标记完成
               </button>
               <p
-                v-if="!['pending', 'approved'].includes(b.status)"
+                v-if="![BOOKING_STATUS.PENDING, BOOKING_STATUS.APPROVED].includes(b.status)"
                 class="flex flex-1 items-center justify-center rounded-lg border border-dashed border-slate-200 bg-slate-50/50 px-3 py-3 text-center text-xs text-slate-500 lg:flex-none"
               >
                 当前状态无需操作

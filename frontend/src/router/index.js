@@ -13,6 +13,7 @@ import StudentProfile from "../pages/student/StudentProfile.vue";
 import StudentBooking from "../pages/student/StudentBooking.vue";
 import StudentBookingRecords from "../pages/student/StudentBookingRecords.vue";
 import StudentBookingDetail from "../pages/student/StudentBookingDetail.vue";
+import StudentMessages from "../pages/student/StudentMessages.vue";
 
 import TeacherDashboard from "../pages/teacher/TeacherDashboard.vue";
 import TeacherLabs from "../pages/teacher/TeacherLabs.vue";
@@ -21,9 +22,12 @@ import TeacherRepairs from "../pages/teacher/TeacherRepairs.vue";
 
 import AdminDashboard from "../pages/admin/AdminDashboard.vue";
 import AdminSystem from "../pages/admin/AdminSystem.vue";
+import AdminUsers from "../pages/admin/AdminUsers.vue";
 import AdminAssets from "../pages/admin/AdminAssets.vue";
 import AdminReports from "../pages/admin/AdminReports.vue";
-import { getCurrentUser } from "../mock/db";
+import AdminLabInfo from "../pages/admin/AdminLabInfo.vue";
+import AdminLabApplications from "../pages/admin/AdminLabApplications.vue";
+import { getCurrentUser } from "../services/session";
 
 const routes = [
   {
@@ -60,7 +64,7 @@ const routes = [
       { path: "booking", redirect: "/student/booking-records/new" },
       { path: "settings", component: StudentProfile, meta: { role: "student" } },
       { path: "profile", redirect: "/student/settings" },
-      { path: "messages", redirect: "/student/dashboard" }
+      { path: "messages", component: StudentMessages, meta: { role: "student" } }
     ]
   },
   {
@@ -81,8 +85,11 @@ const routes = [
     children: [
       { path: "dashboard", component: AdminDashboard, meta: { role: "admin" } },
       { path: "system", component: AdminSystem, meta: { role: "admin" } },
+      { path: "users", component: AdminUsers, meta: { role: "admin" } },
       { path: "assets", component: AdminAssets, meta: { role: "admin" } },
-      { path: "reports", component: AdminReports, meta: { role: "admin" } }
+      { path: "reports", component: AdminReports, meta: { role: "admin" } },
+      { path: "labs/info", component: AdminLabInfo, meta: { role: "admin" } },
+      { path: "labs/applications", component: AdminLabApplications, meta: { role: "admin" } }
     ]
   }
 ];

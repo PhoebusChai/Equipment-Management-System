@@ -1,12 +1,12 @@
 <script setup>
-import { ref, computed } from "vue";
+import { ref, computed, onMounted } from "vue";
 import { useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
-import { findUserByEmail, getCurrentUser, listBookings, getResource, updateBookingStatus } from "../../mock/db";
-import { useMockDb } from "../../composables/useMockDb";
+import { BOOKING_STATUS, cancelBookingApi, listBookingsApi } from "../../services/bookings";
+import { listDevicesApi, listLabsApi } from "../../services/resources";
+import { getCurrentUser } from "../../services/session";
 
 const router = useRouter();
-useMockDb();
 
 // 筛选条件
 const filterStatus = ref('all');
@@ -14,7 +14,10 @@ const filterType = ref('all');
 const searchKeyword = ref('');
 
 const currentUser = computed(() => getCurrentUser());
-const currentDbUser = computed(() => (currentUser.value ? findUserByEmail(currentUser.value.email) : null));
+const currentDbUser = computed(() => currentUser.value || null);
+const bookingsSource = ref([]);
+const labsSource = ref([]);
+const devicesSource = ref([]);
 
 function pad2(n) {
   return String(n).padStart(2, "0");
@@ -30,14 +33,17 @@ function formatDateTime(iso) {
 
 const bookings = computed(() => {
   if (!currentDbUser.value) return [];
-  const list = listBookings({ role: "student", userId: currentDbUser.value.id });
+  const list = bookingsSource.value;
   return list
     .slice()
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
     .map((b) => {
       const start = formatDateTime(b.startAt);
       const end = formatDateTime(b.endAt);
-      const res = getResource(b.resourceType, b.resourceId);
+      const res =
+        b.resourceType === "lab"
+          ? labsSource.value.find((x) => x.id === b.resourceId)
+          : devicesSource.value.find((x) => x.id === b.resourceId);
       const building = b.resourceType === "lab" ? res?.building || "-" : res?.location || "-";
       return {
         id: b.id,
@@ -59,11 +65,11 @@ const bookings = computed(() => {
 
 // 状态配置
 const statusConfig = {
-  pending: { text: "待审核", class: "bg-amber-100 text-amber-700" },
-  approved: { text: "已确认", class: "bg-green-100 text-green-700" },
-  rejected: { text: "已驳回", class: "bg-rose-100 text-rose-700" },
-  completed: { text: "已完成", class: "bg-slate-100 text-slate-700" },
-  cancelled: { text: "已取消", class: "bg-red-100 text-red-700" }
+  [BOOKING_STATUS.PENDING]: { text: "待审核", class: "bg-amber-100 text-amber-700" },
+  [BOOKING_STATUS.APPROVED]: { text: "已确认", class: "bg-green-100 text-green-700" },
+  [BOOKING_STATUS.REJECTED]: { text: "已驳回", class: "bg-rose-100 text-rose-700" },
+  [BOOKING_STATUS.COMPLETED]: { text: "已完成", class: "bg-slate-100 text-slate-700" },
+  [BOOKING_STATUS.CANCELLED]: { text: "已取消", class: "bg-red-100 text-red-700" }
 };
 
 // 筛选后的预约记录
@@ -95,24 +101,30 @@ const filteredBookings = computed(() => {
 const statistics = computed(() => {
   return {
     total: bookings.value.length,
-    pending: bookings.value.filter((b) => b.status === "pending").length,
-    approved: bookings.value.filter((b) => b.status === "approved").length,
-    rejected: bookings.value.filter((b) => b.status === "rejected").length,
-    completed: bookings.value.filter((b) => b.status === "completed").length,
-    cancelled: bookings.value.filter((b) => b.status === "cancelled").length
+    pending: bookings.value.filter((b) => b.status === BOOKING_STATUS.PENDING).length,
+    approved: bookings.value.filter((b) => b.status === BOOKING_STATUS.APPROVED).length,
+    rejected: bookings.value.filter((b) => b.status === BOOKING_STATUS.REJECTED).length,
+    completed: bookings.value.filter((b) => b.status === BOOKING_STATUS.COMPLETED).length,
+    cancelled: bookings.value.filter((b) => b.status === BOOKING_STATUS.CANCELLED).length
   };
 });
 
 // 取消预约
-function cancelBooking(booking) {
-  if (booking.status === 'completed' || booking.status === 'cancelled') {
+async function cancelBooking(booking) {
+  if (booking.status === BOOKING_STATUS.COMPLETED || booking.status === BOOKING_STATUS.CANCELLED) {
     ElMessage.warning("该预约无法取消");
     return;
   }
   
   if (confirm(`确定要取消预约"${booking.resourceName}"吗？`)) {
-    updateBookingStatus(booking.id, "cancelled");
-    ElMessage.success("预约已取消");
+    if (!currentDbUser.value?.id) return ElMessage.warning("未登录或账号无效");
+    try {
+      await cancelBookingApi(booking.id, { userId: currentDbUser.value.id, reason: "用户取消" });
+      ElMessage.success("已取消预约");
+      bookingsSource.value = await listBookingsApi({ userId: currentDbUser.value.id });
+    } catch (e) {
+      ElMessage.error(e.message || "取消失败");
+    }
   }
 }
 
@@ -132,6 +144,18 @@ function rebookResource(booking) {
     }
   });
 }
+
+onMounted(async () => {
+  if (!currentDbUser.value?.id) return;
+  const [bookings, labs, devices] = await Promise.all([
+    listBookingsApi({ userId: currentDbUser.value.id }),
+    listLabsApi(),
+    listDevicesApi()
+  ]);
+  bookingsSource.value = bookings;
+  labsSource.value = labs;
+  devicesSource.value = devices;
+});
 </script>
 
 <template>
@@ -285,14 +309,14 @@ function rebookResource(booking) {
                 查看详情
               </button>
               <button
-                v-if="booking.status === 'pending' || booking.status === 'confirmed'"
+                v-if="booking.status === BOOKING_STATUS.PENDING || booking.status === BOOKING_STATUS.APPROVED"
                 @click="cancelBooking(booking)"
                 class="rounded-lg border border-red-200 bg-white px-3 py-1.5 text-xs font-medium text-red-700 transition hover:bg-red-50"
               >
                 取消预约
               </button>
               <button
-                v-if="booking.status === 'cancelled' || booking.status === 'completed'"
+                v-if="booking.status === BOOKING_STATUS.CANCELLED || booking.status === BOOKING_STATUS.COMPLETED"
                 @click="rebookResource(booking)"
                 class="rounded-lg border border-brand-200 bg-white px-3 py-1.5 text-xs font-medium text-brand-700 transition hover:bg-brand-50"
               >

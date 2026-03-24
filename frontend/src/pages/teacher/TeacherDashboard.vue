@@ -1,28 +1,33 @@
 <script setup>
-import { computed } from "vue";
+import { computed, onMounted, ref } from "vue";
 import StatCard from "../../components/StatCard.vue";
 import DataTable from "../../components/DataTable.vue";
-import { findUserByEmail, getCurrentUser, listBookings, listLabs, listRepairs } from "../../mock/db";
-import { useMockDb } from "../../composables/useMockDb";
-
-useMockDb();
+import { listBookingsApi, BOOKING_STATUS } from "../../services/bookings";
+import { listLabsApi } from "../../services/resources";
+import { listRepairsApi } from "../../services/repairs";
+import { getCurrentUser } from "../../services/session";
 
 const currentUser = computed(() => getCurrentUser());
-const currentDbUser = computed(() => (currentUser.value ? findUserByEmail(currentUser.value.email) : null));
+const currentDbUser = computed(() => currentUser.value || null);
+const repairs = ref([]);
+const bookings = ref([]);
+const labs = ref([]);
 
 const teacherBookings = computed(() => {
   if (!currentDbUser.value) return [];
-  return listBookings({ role: "teacher", userId: currentDbUser.value.id });
+  return bookings.value;
 });
 
-const pendingCount = computed(() => teacherBookings.value.filter((b) => b.status === "pending").length);
-const emergencyPendingCount = computed(() => teacherBookings.value.filter((b) => b.status === "pending" && b.isEmergency).length);
+const pendingCount = computed(() => teacherBookings.value.filter((b) => b.status === BOOKING_STATUS.PENDING).length);
+const emergencyPendingCount = computed(
+  () => teacherBookings.value.filter((b) => b.status === BOOKING_STATUS.PENDING && b.isEmergency).length
+);
 
-const managedLabsCount = computed(() => listLabs().filter((l) => String(l.manager || "").includes("老师")).length);
+const managedLabsCount = computed(() => labs.value.length);
 
 const repairsCount = computed(() => {
   if (!currentDbUser.value) return 0;
-  return listRepairs({ handlerUserId: currentDbUser.value.id }).filter((r) => r.status !== "resolved").length;
+  return repairs.value.filter((r) => r.status !== "resolved").length;
 });
 
 const stats = computed(() => [
@@ -51,7 +56,7 @@ function formatRange(startAt, endAt) {
 
 const bookingRows = computed(() =>
   teacherBookings.value
-    .filter((b) => b.status === "pending")
+    .filter((b) => b.status === BOOKING_STATUS.PENDING)
     .slice()
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
     .slice(0, 5)
@@ -62,6 +67,18 @@ const bookingRows = computed(() =>
       status: b.isEmergency ? "紧急待审核" : "待审核"
     }))
 );
+
+onMounted(async () => {
+  if (!currentDbUser.value) return;
+  const [repairsData, bookingData, labsData] = await Promise.all([
+    listRepairsApi(currentDbUser.value.id),
+    listBookingsApi({ approverId: currentDbUser.value.id }),
+    listLabsApi()
+  ]);
+  repairs.value = repairsData;
+  bookings.value = bookingData;
+  labs.value = labsData;
+});
 </script>
 
 <template>

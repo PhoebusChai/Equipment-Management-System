@@ -7,11 +7,12 @@ import {
   CalendarClock,
   Wrench,
   Database,
-  ShieldCheck
+  ShieldCheck,
+  Building2
 } from "lucide-vue-next";
 import TopNavBar from "../components/TopNavBar.vue";
 import SideMenu from "../components/SideMenu.vue";
-import { findUserByEmail, getCurrentUser } from "../mock/db";
+import { getCurrentUser, clearCurrentUser } from "../services/session";
 
 const route = useRoute();
 const router = useRouter();
@@ -33,8 +34,17 @@ const menuMap = {
   ],
   admin: [
     { name: "管理员首页", icon: LayoutDashboard, to: "/admin/dashboard" },
+    { name: "用户管理", icon: UserRound, to: "/admin/users" },
     { name: "系统管理", icon: ShieldCheck, to: "/admin/system" },
     { name: "设备资产", icon: Database, to: "/admin/assets" },
+    {
+      name: "实验室管理",
+      icon: Building2,
+      children: [
+        { name: "实验室信息管理", to: "/admin/labs/info" },
+        { name: "实验室申请管理", to: "/admin/labs/applications" }
+      ]
+    },
     { name: "数据分析", icon: CalendarClock, to: "/admin/reports" }
   ]
 };
@@ -49,7 +59,6 @@ const roleLabel = computed(() => {
 
 const userInfo = computed(() => {
   const current = getCurrentUser();
-  const dbUser = current?.email ? findUserByEmail(current.email) : null;
 
   const defaultNameMap = {
     student: "学生用户",
@@ -58,7 +67,7 @@ const userInfo = computed(() => {
   };
 
   return {
-    name: dbUser?.realName || defaultNameMap[role.value] || "用户",
+    name: current?.email || defaultNameMap[role.value] || "用户",
     avatarUrl: ""
   };
 });
@@ -68,7 +77,7 @@ function navigate(path) {
 }
 
 function logout() {
-  localStorage.removeItem("ems_current_user");
+  clearCurrentUser();
   router.replace("/auth/login");
 }
 </script>

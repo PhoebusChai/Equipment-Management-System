@@ -2,7 +2,10 @@
 import { ref, computed, onMounted, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
-import { checkBookingConflict, createBooking, findUserByEmail, getCurrentUser, listDevices, listLabs } from "../../mock/db";
+import { checkBookingConflictApi, createBookingApi } from "../../services/bookings";
+import { listDevicesApi, listLabsApi } from "../../services/resources";
+import { APPLICATION_STATUS, listApplicationsApi } from "../../services/applications";
+import { getCurrentUser } from "../../services/session";
 
 const route = useRoute();
 const router = useRouter();
@@ -30,13 +33,48 @@ const searchKeyword = ref('');
 const selectedDate = ref('');
 const selectedStartTime = ref('');
 const selectedEndTime = ref('');
+const selectedSlotPreset = ref('');
 
 // 冲突检测结果
 const conflictCheck = ref(null);
 const showConflict = ref(false);
 
 const currentUser = computed(() => getCurrentUser());
-const currentDbUser = computed(() => (currentUser.value ? findUserByEmail(currentUser.value.email) : null));
+const currentDbUser = computed(() => currentUser.value || null);
+const labsSource = ref([]);
+const devicesSource = ref([]);
+const applicationsSource = ref([]);
+
+function parseLabApplyMeta(app) {
+  const detail = app?.detail || "";
+  const txt = String(detail || "");
+  const rows = txt.split("\n");
+  const get = (k) => rows.find((r) => r.startsWith(`${k}：`) || r.startsWith(`${k}:`))?.split(/：|:/).slice(1).join(":").trim() || "";
+  return {
+    labId: Number(get("labId")) || null,
+    openDateStart: app?.openDateStart || "",
+    openDateEnd: app?.openDateEnd || "",
+    dailyStartTime: app?.dailyStartTime || "",
+    dailyEndTime: app?.dailyEndTime || ""
+  };
+}
+
+function inOpenWindow(meta, dateStr, startTime, endTime) {
+  if (!meta.openDateStart || !meta.openDateEnd || !meta.dailyStartTime || !meta.dailyEndTime) return false;
+  if (dateStr < meta.openDateStart || dateStr > meta.openDateEnd) return false;
+  return startTime >= meta.dailyStartTime && endTime <= meta.dailyEndTime && startTime < endTime;
+}
+
+const approvedLabApplyMap = computed(() => {
+  const map = new Map();
+  for (const app of applicationsSource.value || []) {
+    if (app.type !== "lab_apply" || app.status !== APPLICATION_STATUS.APPROVED) continue;
+    const meta = parseLabApplyMeta(app);
+    if (!meta.labId) continue;
+    map.set(meta.labId, meta);
+  }
+  return map;
+});
 
 // 从路由参数初始化
 onMounted(() => {
@@ -55,28 +93,33 @@ onMounted(() => {
     }
   }
   
-  loadAvailableResources();
+  Promise.all([listLabsApi(), listDevicesApi(), listApplicationsApi()]).then(([labs, devices, applications]) => {
+    labsSource.value = labs;
+    devicesSource.value = devices;
+    applicationsSource.value = applications;
+    loadAvailableResources();
+  });
   
   // 设置默认日期为今天
-  const today = new Date();
-  selectedDate.value = today.toISOString().split('T')[0];
+  selectedDate.value = localDateString(new Date());
 });
 
 // 加载可用资源
 function loadAvailableResources() {
   const keyword = searchKeyword.value.trim();
   if (form.value.resourceType === "lab") {
-    const all = listLabs();
+    const all = labsSource.value;
     availableResources.value = all.filter((lab) => {
+      const hasApprovedApply = approvedLabApplyMap.value.has(lab.id);
       const isAvailable = lab.status === "available";
       const byKeyword =
         !keyword || lab.name.includes(keyword) || lab.building.includes(keyword) || lab.college.includes(keyword);
-      return isAvailable && byKeyword;
+      return hasApprovedApply && isAvailable && byKeyword;
     });
     return;
   }
 
-  const all = listDevices();
+  const all = devicesSource.value;
   availableResources.value = all.filter((device) => {
     const isAvailable = device.status === "available";
     const byKeyword = !keyword || device.name.includes(keyword) || device.location.includes(keyword);
@@ -84,16 +127,29 @@ function loadAvailableResources() {
   });
 }
 
+const slotPresets = [
+  { label: "上午第一段（08:00-10:00）", start: "08:00", end: "10:00" },
+  { label: "上午第二段（10:00-12:00）", start: "10:00", end: "12:00" },
+  { label: "下午第一段（14:00-16:00）", start: "14:00", end: "16:00" },
+  { label: "下午第二段（16:00-18:00）", start: "16:00", end: "18:00" },
+  { label: "晚间时段（19:00-21:00）", start: "19:00", end: "21:00" }
+];
+
 // 生成时间选项（15分钟间隔）
 const timeSlots = computed(() => {
   const slots = [];
-  for (let hour = 8; hour <= 20; hour++) {
+  for (let hour = 8; hour <= 21; hour++) {
     for (let minute = 0; minute < 60; minute += 15) {
       const timeStr = `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
       slots.push(timeStr);
     }
   }
   return slots;
+});
+
+const endTimeSlots = computed(() => {
+  if (!selectedStartTime.value) return timeSlots.value;
+  return timeSlots.value.filter((x) => x > selectedStartTime.value);
 });
 
 // 选择资源
@@ -104,18 +160,32 @@ function selectResource(resource) {
 }
 
 function combineToIso(dateStr, timeStr) {
-  // 使用本地时间组合，转换为 ISO 以便统一存储
-  const d = new Date(`${dateStr}T${timeStr}:00`);
-  return d.toISOString();
+  // 后端使用 LocalDateTime，避免 toISOString 的时区偏移
+  return `${dateStr}T${timeStr}:00`;
+}
+
+function localDateString(date) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+function choosePreset() {
+  if (!selectedSlotPreset.value) return;
+  const preset = slotPresets.find((x) => x.label === selectedSlotPreset.value);
+  if (!preset) return;
+  selectedStartTime.value = preset.start;
+  selectedEndTime.value = preset.end;
 }
 
 // 冲突检测
-function checkConflict() {
+async function checkConflict() {
   if (!validateForm()) return;
 
   const startAt = combineToIso(selectedDate.value, selectedStartTime.value);
   const endAt = combineToIso(selectedDate.value, selectedEndTime.value);
-  const result = checkBookingConflict({
+  const result = await checkBookingConflictApi({
     resourceType: form.value.resourceType,
     resourceId: Number(form.value.resourceId),
     startAt,
@@ -131,7 +201,7 @@ function checkConflict() {
 }
 
 // 提交预约
-function submitBooking() {
+async function submitBooking() {
   if (!validateForm()) return;
 
   if (!currentDbUser.value) {
@@ -144,14 +214,16 @@ function submitBooking() {
   const endAt = combineToIso(selectedDate.value, selectedEndTime.value);
 
   try {
-    createBooking({
+    const purposeWithSlot = selectedSlotPreset.value
+      ? `【${selectedSlotPreset.value}】${form.value.purpose}`
+      : form.value.purpose;
+    await createBookingApi({
       createdByUserId: currentDbUser.value.id,
       resourceType: form.value.resourceType,
       resourceId: Number(form.value.resourceId),
-      resourceName: form.value.resourceName,
       startAt,
       endAt,
-      purpose: form.value.purpose,
+      purpose: purposeWithSlot,
       participants: Number(form.value.participants) || 1,
       isEmergency: !!form.value.isEmergency
     });
@@ -176,6 +248,12 @@ function validateForm() {
     ElMessage.warning("结束时间必须晚于开始时间");
     return false;
   }
+  const now = new Date();
+  const start = new Date(`${selectedDate.value}T${selectedStartTime.value}:00`);
+  if (start.getTime() <= now.getTime()) {
+    ElMessage.warning("开始时间必须晚于当前时间");
+    return false;
+  }
   if (!form.value.purpose.trim()) {
     ElMessage.warning("请填写使用目的");
     return false;
@@ -184,6 +262,18 @@ function validateForm() {
   // 组合完整时间
   form.value.startTime = `${selectedDate.value} ${selectedStartTime.value}`;
   form.value.endTime = `${selectedDate.value} ${selectedEndTime.value}`;
+
+  if (form.value.resourceType === "lab") {
+    const meta = approvedLabApplyMap.value.get(Number(form.value.resourceId));
+    if (!meta) {
+      ElMessage.warning("该实验室未在教师开放申请范围内，暂不可预约");
+      return false;
+    }
+    if (!inOpenWindow(meta, selectedDate.value, selectedStartTime.value, selectedEndTime.value)) {
+      ElMessage.warning("预约时间不在教师配置的开放时段内");
+      return false;
+    }
+  }
   
   return true;
 }
@@ -204,6 +294,13 @@ function cancelBooking() {
 
 watch([() => form.value.resourceType, searchKeyword], () => {
   loadAvailableResources();
+});
+
+watch(selectedStartTime, (val) => {
+  if (!val) return;
+  if (selectedEndTime.value && selectedEndTime.value <= val) {
+    selectedEndTime.value = "";
+  }
 });
 
 </script>
@@ -273,7 +370,7 @@ watch([() => form.value.resourceType, searchKeyword], () => {
           />
 
           <div class="mt-3 flex items-center justify-between text-xs text-slate-500">
-            <span>共 {{ availableResources.length }} 个可用</span>
+            <span>共 {{ availableResources.length }} 个可用（实验室仅显示教师已开放）</span>
             <button
               type="button"
               class="text-brand-700 hover:text-brand-800"
@@ -400,8 +497,18 @@ watch([() => form.value.resourceType, searchKeyword], () => {
                   v-model="selectedDate"
                   type="date"
                   class="input mt-1"
-                  :min="new Date().toISOString().split('T')[0]"
+                  :min="localDateString(new Date())"
                 />
+              </div>
+
+              <div class="mt-3">
+                <label class="block text-xs font-medium text-slate-600">时段模板</label>
+                <select v-model="selectedSlotPreset" class="input mt-1" @change="choosePreset">
+                  <option value="">自定义时段</option>
+                  <option v-for="p in slotPresets" :key="p.label" :value="p.label">
+                    {{ p.label }}
+                  </option>
+                </select>
               </div>
 
               <div class="mt-3 grid grid-cols-2 gap-3">
@@ -418,7 +525,7 @@ watch([() => form.value.resourceType, searchKeyword], () => {
                   <label class="block text-xs font-medium text-slate-600">结束时间</label>
                   <select v-model="selectedEndTime" class="input mt-1">
                     <option value="">选择时间</option>
-                    <option v-for="time in timeSlots" :key="time" :value="time">
+                    <option v-for="time in endTimeSlots" :key="time" :value="time">
                       {{ time }}
                     </option>
                   </select>
@@ -426,7 +533,7 @@ watch([() => form.value.resourceType, searchKeyword], () => {
               </div>
 
               <div class="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
-                提示：建议先进行一次冲突检测再提交
+                提示：建议先进行一次冲突检测再提交；时段会随预约一起存储并在记录中展示
               </div>
             </div>
 

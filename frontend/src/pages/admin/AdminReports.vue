@@ -1,14 +1,19 @@
 <script setup>
-import { computed, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
 import DataTable from "../../components/DataTable.vue";
-import { listBookings, listDevices, listLabs, listRepairs, listUsers } from "../../mock/db";
-import { useMockDb } from "../../composables/useMockDb";
-
-useMockDb();
+import { listBookingsApi } from "../../services/bookings";
+import { listDevicesApi, listLabsApi } from "../../services/resources";
+import { listRepairsApi } from "../../services/repairs";
+import { listUsersApi } from "../../services/users";
 
 const rangeDays = ref(30);
 const resourceType = ref("all"); // all | lab | device
 const highFreqThreshold = ref(3);
+const bookingsAll = ref([]);
+const labsAll = ref([]);
+const devicesAll = ref([]);
+const repairsAll = ref([]);
+const usersAll = ref([]);
 
 function withinDays(iso, days) {
   const t = new Date(iso).getTime();
@@ -19,7 +24,7 @@ function withinDays(iso, days) {
 }
 
 const bookingsInRange = computed(() => {
-  const all = listBookings({ role: "admin" });
+  const all = bookingsAll.value;
   return all
     .filter((b) => withinDays(b.createdAt, rangeDays.value))
     .filter((b) => (resourceType.value === "all" ? true : b.resourceType === resourceType.value));
@@ -30,8 +35,8 @@ const activeBookings = computed(() =>
 );
 
 const resourcesCount = computed(() => {
-  const labs = listLabs().length;
-  const devices = listDevices().length;
+  const labs = labsAll.value.length;
+  const devices = devicesAll.value.length;
   if (resourceType.value === "lab") return labs;
   if (resourceType.value === "device") return devices;
   return labs + devices;
@@ -60,8 +65,8 @@ const highFreqUsers = computed(() => {
 });
 
 const warnings = computed(() => {
-  const maintenanceDevices = listDevices().filter((d) => d.status === "maintenance").length;
-  const openRepairs = listRepairs().filter((r) => r.status !== "resolved").length;
+  const maintenanceDevices = devicesAll.value.filter((d) => d.status === "maintenance").length;
+  const openRepairs = repairsAll.value.filter((r) => r.status !== "resolved").length;
   return maintenanceDevices + openRepairs;
 });
 
@@ -73,7 +78,7 @@ const usageColumns = [
 ];
 
 const usageRows = computed(() => {
-  const labs = listLabs();
+  const labs = labsAll.value;
   const bookingMap = new Map();
   for (const b of bookingsInRange.value) {
     if (b.resourceType !== "lab") continue;
@@ -101,7 +106,7 @@ const userColumns = [
 ];
 
 const userRows = computed(() => {
-  const users = listUsers();
+  const users = usersAll.value;
   const map = new Map();
   for (const b of bookingsInRange.value) map.set(b.createdByUserId, (map.get(b.createdByUserId) || 0) + 1);
 
@@ -116,6 +121,21 @@ const userRows = computed(() => {
     })
     .sort((a, b) => b.count - a.count)
     .slice(0, 10);
+});
+
+onMounted(async () => {
+  const [bookings, labs, devices, repairs, users] = await Promise.all([
+    listBookingsApi(),
+    listLabsApi(),
+    listDevicesApi(),
+    listRepairsApi(),
+    listUsersApi()
+  ]);
+  bookingsAll.value = bookings;
+  labsAll.value = labs;
+  devicesAll.value = devices;
+  repairsAll.value = repairs;
+  usersAll.value = users;
 });
 </script>
 

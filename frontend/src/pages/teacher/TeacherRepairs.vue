@@ -2,10 +2,15 @@
 import { computed, onMounted, ref, watch } from "vue";
 import { useRoute } from "vue-router";
 import { ElMessage, ElMessageBox } from "element-plus";
-import { createRepair, findUserByEmail, getCurrentUser, listRepairs, updateRepairStatus } from "../../mock/db";
-import { useMockDb } from "../../composables/useMockDb";
-
-useMockDb();
+import { getCurrentUser } from "../../services/session";
+import {
+  REPAIR_STATUS,
+  confirmRepairApi,
+  createRepairApi,
+  finishRepairApi,
+  listRepairsApi,
+  startRepairApi
+} from "../../services/repairs";
 
 const route = useRoute();
 
@@ -14,7 +19,7 @@ const filterResourceType = ref("all");
 const keyword = ref("");
 
 const currentUser = computed(() => getCurrentUser());
-const currentDbUser = computed(() => (currentUser.value ? findUserByEmail(currentUser.value.email) : null));
+const currentDbUser = computed(() => currentUser.value || null);
 
 onMounted(() => {
   const q = route.query.q || route.query.keyword;
@@ -38,21 +43,27 @@ function formatShort(iso) {
   return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
 }
 
-const allRepairs = computed(() => {
-  if (!currentDbUser.value) return [];
-  return listRepairs({ handlerUserId: currentDbUser.value.id })
-    .slice()
-    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-});
+const repairs = ref([]);
+const allRepairs = computed(() =>
+  repairs.value.slice().sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+);
+
+async function loadRepairs() {
+  if (!currentDbUser.value) {
+    repairs.value = [];
+    return;
+  }
+  repairs.value = await listRepairsApi(currentDbUser.value.id);
+}
 
 const stats = computed(() => {
   const list = allRepairs.value;
   return {
     total: list.length,
-    submitted: list.filter((r) => r.status === "submitted").length,
-    confirmed: list.filter((r) => r.status === "confirmed").length,
-    inProgress: list.filter((r) => r.status === "in_progress").length,
-    resolved: list.filter((r) => r.status === "resolved").length
+    submitted: list.filter((r) => r.status === REPAIR_STATUS.SUBMITTED).length,
+    confirmed: list.filter((r) => r.status === REPAIR_STATUS.CONFIRMED).length,
+    inProgress: list.filter((r) => r.status === REPAIR_STATUS.IN_PROGRESS).length,
+    resolved: list.filter((r) => r.status === REPAIR_STATUS.RESOLVED).length
   };
 });
 
@@ -76,51 +87,57 @@ const filteredRepairs = computed(() => {
 
 const statusFilters = [
   { value: "all", label: "全部" },
-  { value: "submitted", label: "待确认" },
-  { value: "confirmed", label: "已确认" },
-  { value: "in_progress", label: "维修中" },
-  { value: "resolved", label: "已解决" }
+  { value: REPAIR_STATUS.SUBMITTED, label: "待确认" },
+  { value: REPAIR_STATUS.CONFIRMED, label: "已确认" },
+  { value: REPAIR_STATUS.IN_PROGRESS, label: "维修中" },
+  { value: REPAIR_STATUS.RESOLVED, label: "已解决" }
 ];
 
 const statusPillClass = (status) => {
-  if (status === "submitted") return "bg-amber-100 text-amber-800 ring-1 ring-amber-200/60";
-  if (status === "confirmed") return "bg-orange-100 text-orange-900 ring-1 ring-orange-200/60";
-  if (status === "in_progress") return "bg-rose-100 text-rose-800 ring-1 ring-rose-200/60";
-  if (status === "resolved") return "bg-emerald-100 text-emerald-800 ring-1 ring-emerald-200/60";
+  if (status === REPAIR_STATUS.SUBMITTED) return "bg-amber-100 text-amber-800 ring-1 ring-amber-200/60";
+  if (status === REPAIR_STATUS.CONFIRMED) return "bg-orange-100 text-orange-900 ring-1 ring-orange-200/60";
+  if (status === REPAIR_STATUS.IN_PROGRESS) return "bg-rose-100 text-rose-800 ring-1 ring-rose-200/60";
+  if (status === REPAIR_STATUS.RESOLVED) return "bg-emerald-100 text-emerald-800 ring-1 ring-emerald-200/60";
   return "bg-slate-100 text-slate-600";
 };
 
 const statusText = (status) => {
-  if (status === "submitted") return "待确认";
-  if (status === "confirmed") return "已确认";
-  if (status === "in_progress") return "维修中";
-  if (status === "resolved") return "已解决";
+  if (status === REPAIR_STATUS.SUBMITTED) return "待确认";
+  if (status === REPAIR_STATUS.CONFIRMED) return "已确认";
+  if (status === REPAIR_STATUS.IN_PROGRESS) return "维修中";
+  if (status === REPAIR_STATUS.RESOLVED) return "已解决";
   return status;
 };
 
 function cardAccentClass(status) {
-  if (status === "submitted") return "border-l-amber-400";
-  if (status === "confirmed") return "border-l-orange-400";
-  if (status === "in_progress") return "border-l-rose-500";
-  if (status === "resolved") return "border-l-emerald-500";
+  if (status === REPAIR_STATUS.SUBMITTED) return "border-l-amber-400";
+  if (status === REPAIR_STATUS.CONFIRMED) return "border-l-orange-400";
+  if (status === REPAIR_STATUS.IN_PROGRESS) return "border-l-rose-500";
+  if (status === REPAIR_STATUS.RESOLVED) return "border-l-emerald-500";
   return "border-l-slate-200";
 }
 
 const chipBase =
   "inline-flex cursor-pointer items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition";
 
-function confirmRepair(id) {
-  updateRepairStatus(id, "confirmed");
+async function confirmRepair(id) {
+  if (!currentDbUser.value) return;
+  await confirmRepairApi(id, currentDbUser.value.id);
+  await loadRepairs();
   ElMessage.success("已确认报修，相关资源已进入维护状态");
 }
 
-function startRepair(id) {
-  updateRepairStatus(id, "in_progress");
+async function startRepair(id) {
+  if (!currentDbUser.value) return;
+  await startRepairApi(id, currentDbUser.value.id);
+  await loadRepairs();
   ElMessage.success("已开始维修");
 }
 
-function resolveRepair(id) {
-  updateRepairStatus(id, "resolved");
+async function resolveRepair(id) {
+  if (!currentDbUser.value) return;
+  await finishRepairApi(id, currentDbUser.value.id);
+  await loadRepairs();
   ElMessage.success("已标记解决，资源恢复可预约");
 }
 
@@ -135,7 +152,7 @@ function openCreateRepairDialog() {
     inputType: "textarea",
     inputPlaceholder: "例如：设备无法开机、实验室空调异响、需上门检修…"
   })
-    .then(({ value }) => {
+    .then(async ({ value }) => {
       const desc = String(value || "").trim();
       if (!desc) {
         ElMessage.warning("请填写故障描述");
@@ -147,36 +164,36 @@ function openCreateRepairDialog() {
         { resourceType: "device", resourceId: 2, resourceName: "显微镜 BIO-02" }
       ][Math.floor(Math.random() * 3)];
 
-      createRepair({
+      await createRepairApi({
         createdByUserId: currentDbUser.value.id,
-        handlerUserId: currentDbUser.value.id,
         resourceType: sample.resourceType,
         resourceId: sample.resourceId,
-        resourceName: sample.resourceName,
         description: desc
       });
+      await loadRepairs();
       ElMessage.success(`工单已创建：${sample.resourceName}`);
     })
     .catch(() => {});
 }
 
-function createDemoRepair() {
+async function createDemoRepair() {
   if (!currentDbUser.value) return;
   const sample = [
     { resourceType: "lab", resourceId: 3, resourceName: "生物实验室B201" },
     { resourceType: "device", resourceId: 1, resourceName: "高性能计算机 #01" }
   ][Math.floor(Math.random() * 2)];
 
-  createRepair({
+  await createRepairApi({
     createdByUserId: currentDbUser.value.id,
-    handlerUserId: currentDbUser.value.id,
     resourceType: sample.resourceType,
     resourceId: sample.resourceId,
-    resourceName: sample.resourceName,
     description: "【示例】快速演示工单，可在此页流转状态"
   });
+  await loadRepairs();
   ElMessage.success("已创建示例报修工单");
 }
+
+onMounted(loadRepairs);
 </script>
 
 <template>
@@ -334,7 +351,7 @@ function createDemoRepair() {
               class="flex shrink-0 flex-row gap-2 border-t border-slate-100 pt-4 lg:w-40 lg:flex-col lg:border-l lg:border-t-0 lg:pl-6 lg:pt-0"
             >
               <button
-                v-if="r.status === 'submitted'"
+                v-if="r.status === REPAIR_STATUS.SUBMITTED"
                 type="button"
                 class="btn-primary flex-1 px-4 py-2.5 text-sm shadow-sm lg:flex-none"
                 @click="confirmRepair(r.id)"
@@ -342,7 +359,7 @@ function createDemoRepair() {
                 确认报修
               </button>
               <button
-                v-if="r.status === 'confirmed'"
+                v-if="r.status === REPAIR_STATUS.CONFIRMED"
                 type="button"
                 class="btn-secondary flex-1 border-slate-200 px-4 py-2.5 text-sm shadow-sm lg:flex-none"
                 @click="startRepair(r.id)"
@@ -350,7 +367,7 @@ function createDemoRepair() {
                 开始维修
               </button>
               <button
-                v-if="r.status === 'in_progress'"
+                v-if="r.status === REPAIR_STATUS.IN_PROGRESS"
                 type="button"
                 class="btn-primary flex-1 px-4 py-2.5 text-sm shadow-sm lg:flex-none"
                 @click="resolveRepair(r.id)"
@@ -358,7 +375,7 @@ function createDemoRepair() {
                 维修完成
               </button>
               <p
-                v-if="r.status === 'resolved'"
+                v-if="r.status === REPAIR_STATUS.RESOLVED"
                 class="flex flex-1 items-center justify-center rounded-lg border border-dashed border-emerald-200 bg-emerald-50/40 px-3 py-3 text-center text-xs font-medium text-emerald-800 lg:flex-none"
               >
                 已闭环

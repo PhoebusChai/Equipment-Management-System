@@ -2,6 +2,7 @@
 import { reactive, ref } from "vue";
 import { useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
+import { loginApi } from "../../services/auth";
 
 const router = useRouter();
 const loading = ref(false);
@@ -11,29 +12,7 @@ const form = reactive({
   remember: true
 });
 
-// 本地模拟的三个账号：学生、老师、管理员
-const mockUsers = [
-  {
-    role: "student",
-    email: "student@example.com",
-    password: "123456",
-    redirect: "/student/dashboard"
-  },
-  {
-    role: "teacher",
-    email: "teacher@example.com",
-    password: "123456",
-    redirect: "/teacher/dashboard"
-  },
-  {
-    role: "admin",
-    email: "admin@example.com",
-    password: "123456",
-    redirect: "/admin/dashboard"
-  }
-];
-
-function onSubmit() {
+async function onSubmit() {
   if (!form.email || !form.password) {
     ElMessage.warning("请填写邮箱和密码");
     return;
@@ -41,25 +20,20 @@ function onSubmit() {
 
   loading.value = true;
 
-  setTimeout(() => {
-    const user = mockUsers.find(
-      (u) => u.email === form.email.trim() && u.password === form.password
-    );
-
-    if (!user) {
-      loading.value = false;
-      ElMessage.error("账号或密码错误（仅本地模拟账号可用）");
-      return;
-    }
-
-    // 简单本地“登录态”（演示用：始终写入，方便路由守卫与页面读取）
-    const userInfo = { email: user.email, role: user.role };
-    window.localStorage.setItem("ems_current_user", JSON.stringify(userInfo));
-
+  try {
+    const user = await loginApi({ email: form.email.trim(), password: form.password });
+    const redirectMap = {
+      student: "/student/dashboard",
+      teacher: "/teacher/dashboard",
+      admin: "/admin/dashboard"
+    };
     loading.value = false;
     ElMessage.success(`以${user.role === "student" ? "学生" : user.role === "teacher" ? "老师" : "管理员"}身份登录成功`);
-    router.push(user.redirect);
-  }, 500);
+    router.push(redirectMap[user.role] || "/auth/login");
+  } catch (e) {
+    loading.value = false;
+    ElMessage.error(e.message || "账号或密码错误");
+  }
 }
 </script>
 

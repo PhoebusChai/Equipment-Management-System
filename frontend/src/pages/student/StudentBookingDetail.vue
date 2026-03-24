@@ -2,12 +2,12 @@
 import { ref, computed, onMounted } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
-import { findUserByEmail, getBookingById, getCurrentUser, getResource, updateBookingStatus } from "../../mock/db";
-import { useMockDb } from "../../composables/useMockDb";
+import { listBookingsApi } from "../../services/bookings";
+import { listDevicesApi, listLabsApi } from "../../services/resources";
+import { getCurrentUser } from "../../services/session";
 
 const route = useRoute();
 const router = useRouter();
-useMockDb();
 
 const booking = ref(null);
 const loading = ref(true);
@@ -42,7 +42,7 @@ const statusConfig = {
 };
 
 const currentUser = computed(() => getCurrentUser());
-const currentDbUser = computed(() => (currentUser.value ? findUserByEmail(currentUser.value.email) : null));
+const currentDbUser = computed(() => currentUser.value || null);
 
 onMounted(() => {
   loadBookingDetail();
@@ -60,11 +60,21 @@ function formatDateTime(iso) {
   return { date, time };
 }
 
-function loadBookingDetail() {
+async function loadBookingDetail() {
   loading.value = true;
 
   const bookingId = Number(route.params.id);
-  const raw = getBookingById(bookingId);
+  if (!currentDbUser.value?.id) {
+    booking.value = null;
+    loading.value = false;
+    return;
+  }
+  const [bookings, labs, devices] = await Promise.all([
+    listBookingsApi({ userId: currentDbUser.value.id }),
+    listLabsApi(),
+    listDevicesApi()
+  ]);
+  const raw = bookings.find((x) => x.id === bookingId);
   if (!raw) {
     booking.value = null;
     loading.value = false;
@@ -79,7 +89,10 @@ function loadBookingDetail() {
 
   const start = formatDateTime(raw.startAt);
   const end = formatDateTime(raw.endAt);
-  const res = getResource(raw.resourceType, raw.resourceId);
+  const res =
+    raw.resourceType === "lab"
+      ? labs.find((x) => x.id === raw.resourceId)
+      : devices.find((x) => x.id === raw.resourceId);
 
   booking.value = {
     id: raw.id,
@@ -118,9 +131,7 @@ function cancelBooking() {
   }
   
   if (confirm(`确定要取消预约"${booking.value.resourceName}"吗？\n取消后需要重新预约。`)) {
-    updateBookingStatus(booking.value.id, "cancelled");
-    ElMessage.success("预约已取消");
-    router.push('/student/booking-records');
+    ElMessage.warning("当前后端未开放学生端取消预约接口，建议联系教师处理");
   }
 }
 

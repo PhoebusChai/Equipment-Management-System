@@ -2,6 +2,7 @@
 import { reactive, ref } from "vue";
 import { useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
+import { registerApi } from "../../services/auth";
 
 const router = useRouter();
 const loading = ref(false);
@@ -13,7 +14,7 @@ const form = reactive({
   confirmPassword: ""
 });
 
-function onSubmit() {
+async function onSubmit() {
   if (!form.name || !form.email || !form.password || !form.confirmPassword) {
     ElMessage.warning("请完整填写注册信息");
     return;
@@ -23,11 +24,20 @@ function onSubmit() {
     return;
   }
   loading.value = true;
-  setTimeout(() => {
+  try {
+    await registerApi({
+      email: form.email,
+      password: form.password,
+      realName: form.name,
+      roleCode: form.roleCode
+    });
+    ElMessage.success("注册成功，已自动登录");
+    router.push(form.roleCode === "TEACHER" ? "/teacher/dashboard" : "/student/dashboard");
+  } catch (e) {
+    ElMessage.error(e.message || "注册失败");
+  } finally {
     loading.value = false;
-    ElMessage.success("注册成功，请登录");
-    router.push("/auth/login");
-  }, 900);
+  }
 }
 </script>
 

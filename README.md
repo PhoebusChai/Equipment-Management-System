@@ -123,6 +123,18 @@ npm run dev
 3. 优先实现预约链路（查询 -> 下单 -> 冲突检测 -> 审批 -> 结果）。
 4. 完成报修与公告功能，最后补齐数据分析报表。
 
+当前已提供后端骨架目录：`backend/`
+
+```bash
+cd backend
+mvn spring-boot:run
+```
+
+可用接口：
+
+- `GET /api/health`
+- `POST /api/auth/login`（占位联调用）
+
 ## 9. 相关文档
 
 - 需求说明：`docs/需求文档.md`

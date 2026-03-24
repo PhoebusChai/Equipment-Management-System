@@ -3,6 +3,27 @@ import { createSeedData } from "./seed";
 const STORAGE_KEY = "ems_mock_db_v1";
 const SUBSCRIBERS_KEY = "__ems_mock_db_subscribers__";
 
+// 前端统一状态枚举（用于页面与 mock 逻辑）
+export const USER_STATUS = {
+  ACTIVE: "active",
+  DISABLED: "disabled"
+};
+
+export const BOOKING_STATUS = {
+  PENDING: "pending",
+  APPROVED: "approved",
+  REJECTED: "rejected",
+  CANCELLED: "cancelled",
+  COMPLETED: "completed"
+};
+
+export const REPAIR_STATUS = {
+  SUBMITTED: "submitted",
+  CONFIRMED: "confirmed",
+  IN_PROGRESS: "in_progress",
+  RESOLVED: "resolved"
+};
+
 function safeParse(json, fallback) {
   try {
     return JSON.parse(json);
@@ -61,6 +82,28 @@ export function getCurrentUser() {
   const raw = localStorage.getItem("ems_current_user");
   const user = safeParse(raw || "{}", {});
   return user && user.email ? user : null;
+}
+
+export function setCurrentUser(user) {
+  if (!user) {
+    localStorage.removeItem("ems_current_user");
+    return;
+  }
+  localStorage.setItem("ems_current_user", JSON.stringify({ email: user.email, role: user.role }));
+}
+
+export function clearCurrentUser() {
+  localStorage.removeItem("ems_current_user");
+}
+
+export function authenticateUser(email, password) {
+  const normalized = String(email || "").trim().toLowerCase();
+  const pwd = String(password || "");
+  const user = listUsers().find((u) => String(u.email || "").toLowerCase() === normalized);
+  if (!user) throw new Error("账号不存在");
+  if (user.status !== USER_STATUS.ACTIVE) throw new Error("账号已被禁用，请联系管理员");
+  if (user.password !== pwd) throw new Error("密码错误");
+  return user;
 }
 
 export function findUserByEmail(email) {
@@ -325,5 +368,141 @@ export function updateApplicationStatus(appId, status, patch = {}) {
   db.applications[idx] = { ...db.applications[idx], status, ...patch, updatedAt: nowIso() };
   setDb(db);
   return db.applications[idx];
+}
+
+// ------------------------------
+// 前端字段 <-> 后端 SQL 字段适配层
+// ------------------------------
+
+const BOOKING_STATUS_TO_SQL = {
+  [BOOKING_STATUS.PENDING]: "PENDING",
+  [BOOKING_STATUS.APPROVED]: "APPROVED",
+  [BOOKING_STATUS.REJECTED]: "REJECTED",
+  [BOOKING_STATUS.CANCELLED]: "CANCELLED",
+  [BOOKING_STATUS.COMPLETED]: "FINISHED"
+};
+
+const BOOKING_STATUS_FROM_SQL = {
+  PENDING: BOOKING_STATUS.PENDING,
+  APPROVED: BOOKING_STATUS.APPROVED,
+  REJECTED: BOOKING_STATUS.REJECTED,
+  CANCELLED: BOOKING_STATUS.CANCELLED,
+  IN_USE: BOOKING_STATUS.APPROVED,
+  FINISHED: BOOKING_STATUS.COMPLETED
+};
+
+const REPAIR_STATUS_TO_SQL = {
+  [REPAIR_STATUS.SUBMITTED]: "SUBMITTED",
+  [REPAIR_STATUS.CONFIRMED]: "CONFIRMED",
+  [REPAIR_STATUS.IN_PROGRESS]: "IN_REPAIR",
+  [REPAIR_STATUS.RESOLVED]: "FINISHED"
+};
+
+const REPAIR_STATUS_FROM_SQL = {
+  SUBMITTED: REPAIR_STATUS.SUBMITTED,
+  CONFIRMED: REPAIR_STATUS.CONFIRMED,
+  IN_REPAIR: REPAIR_STATUS.IN_PROGRESS,
+  FINISHED: REPAIR_STATUS.RESOLVED,
+  REJECTED: REPAIR_STATUS.RESOLVED
+};
+
+const USER_STATUS_TO_SQL = {
+  [USER_STATUS.ACTIVE]: "ACTIVE",
+  [USER_STATUS.DISABLED]: "LOCKED"
+};
+
+const USER_STATUS_FROM_SQL = {
+  ACTIVE: USER_STATUS.ACTIVE,
+  LOCKED: USER_STATUS.DISABLED
+};
+
+export function toSqlBookingStatus(status) {
+  return BOOKING_STATUS_TO_SQL[status] || "PENDING";
+}
+
+export function fromSqlBookingStatus(status) {
+  return BOOKING_STATUS_FROM_SQL[status] || BOOKING_STATUS.PENDING;
+}
+
+export function toSqlRepairStatus(status) {
+  return REPAIR_STATUS_TO_SQL[status] || "SUBMITTED";
+}
+
+export function fromSqlRepairStatus(status) {
+  return REPAIR_STATUS_FROM_SQL[status] || REPAIR_STATUS.SUBMITTED;
+}
+
+export function toSqlUserStatus(status) {
+  return USER_STATUS_TO_SQL[status] || "ACTIVE";
+}
+
+export function fromSqlUserStatus(status) {
+  return USER_STATUS_FROM_SQL[status] || USER_STATUS.ACTIVE;
+}
+
+export function toSqlUser(user) {
+  return {
+    id: user.id,
+    email: user.email,
+    password_hash: user.password,
+    role_code: user.role,
+    real_name: user.realName,
+    status: toSqlUserStatus(user.status),
+    created_at: user.createdAt,
+    updated_at: user.updatedAt
+  };
+}
+
+export function fromSqlUser(row) {
+  return {
+    id: row.id,
+    email: row.email,
+    password: row.password_hash,
+    role: row.role_code,
+    realName: row.real_name,
+    status: fromSqlUserStatus(row.status),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  };
+}
+
+export function toSqlBooking(booking) {
+  return {
+    id: booking.id,
+    user_id: booking.createdByUserId,
+    booking_scope: booking.resourceType === "lab" ? "LAB" : "DEVICE",
+    lab_id: booking.resourceType === "lab" ? booking.resourceId : null,
+    device_id: booking.resourceType === "device" ? booking.resourceId : null,
+    start_time: booking.startAt,
+    end_time: booking.endAt,
+    duration_minutes: Math.max(
+      0,
+      Math.floor((new Date(booking.endAt).getTime() - new Date(booking.startAt).getTime()) / 60000)
+    ),
+    status: toSqlBookingStatus(booking.status),
+    emergency_flag: booking.isEmergency ? 1 : 0,
+    review_user_id: booking.reviewerUserId || null,
+    review_time: booking.status === BOOKING_STATUS.PENDING ? null : booking.updatedAt || booking.createdAt,
+    reject_reason: booking.status === BOOKING_STATUS.REJECTED ? booking.reviewNote || "" : null,
+    created_at: booking.createdAt,
+    updated_at: booking.updatedAt
+  };
+}
+
+export function toSqlRepairRequest(repair) {
+  return {
+    id: repair.id,
+    reporter_id: repair.createdByUserId,
+    lab_id: repair.resourceType === "lab" ? repair.resourceId : null,
+    device_id: repair.resourceType === "device" ? repair.resourceId : null,
+    fault_desc: repair.description || "",
+    status: toSqlRepairStatus(repair.status),
+    confirmer_id: repair.handlerUserId || null,
+    confirm_time: [REPAIR_STATUS.CONFIRMED, REPAIR_STATUS.IN_PROGRESS, REPAIR_STATUS.RESOLVED].includes(repair.status)
+      ? repair.updatedAt
+      : null,
+    created_at: repair.createdAt,
+    updated_at: repair.updatedAt
+  };
 }
 

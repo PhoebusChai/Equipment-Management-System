@@ -1,6 +1,7 @@
 <script setup>
 import { reactive, ref } from "vue";
 import { ElMessage } from "element-plus";
+import { resetPasswordApi } from "../../services/auth";
 
 const loading = ref(false);
 const form = reactive({
@@ -14,19 +15,23 @@ function sendCode() {
     ElMessage.warning("请先输入邮箱");
     return;
   }
-  ElMessage.success("验证码已发送到邮箱");
+  ElMessage.info("当前版本未接入邮箱服务，验证码校验已简化为直接重置");
 }
 
-function onSubmit() {
-  if (!form.email || !form.code || !form.newPassword) {
+async function onSubmit() {
+  if (!form.email || !form.newPassword) {
     ElMessage.warning("请填写完整信息");
     return;
   }
   loading.value = true;
-  setTimeout(() => {
-    loading.value = false;
+  try {
+    await resetPasswordApi({ email: form.email, newPassword: form.newPassword });
     ElMessage.success("密码重置成功，请重新登录");
-  }, 800);
+  } catch (e) {
+    ElMessage.error(e.message || "重置失败");
+  } finally {
+    loading.value = false;
+  }
 }
 </script>
 

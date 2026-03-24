@@ -1,20 +1,22 @@
 <script setup>
-import { computed } from "vue";
+import { computed, onMounted, ref } from "vue";
 import StatCard from "../../components/StatCard.vue";
 import DataTable from "../../components/DataTable.vue";
-import { listApplications, listBookings, listDevices, listLabs, listUsers } from "../../mock/db";
-import { useMockDb } from "../../composables/useMockDb";
+import { listApplicationsApi } from "../../services/applications";
+import { listBookingsApi } from "../../services/bookings";
+import { listDevicesApi, listLabsApi } from "../../services/resources";
+import { listUsersApi } from "../../services/users";
 
-useMockDb();
-
-const users = computed(() => listUsers());
-const apps = computed(() => listApplications());
-const bookings = computed(() => listBookings({ role: "admin" }));
+const users = ref([]);
+const apps = ref([]);
+const bookings = ref([]);
+const labs = ref([]);
+const devices = ref([]);
 
 const pendingAppsCount = computed(() => apps.value.filter((a) => a.status === "submitted").length);
 
 const usagePercent = computed(() => {
-  const resources = listLabs().length + listDevices().length || 1;
+  const resources = labs.value.length + devices.value.length || 1;
   const set = new Set();
   for (const b of bookings.value) {
     if (["pending", "approved", "completed"].includes(b.status)) set.add(`${b.resourceType}:${b.resourceId}`);
@@ -75,6 +77,21 @@ const pendingRows = computed(() =>
       status: statusText(a.status)
     }))
 );
+
+onMounted(async () => {
+  const [appsData, bookingsData, labsData, devicesData, usersData] = await Promise.all([
+    listApplicationsApi(),
+    listBookingsApi(),
+    listLabsApi(),
+    listDevicesApi(),
+    listUsersApi()
+  ]);
+  apps.value = appsData;
+  bookings.value = bookingsData;
+  labs.value = labsData;
+  devices.value = devicesData;
+  users.value = usersData;
+});
 </script>
 
 <template>

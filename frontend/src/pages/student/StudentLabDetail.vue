@@ -1,23 +1,33 @@
 <script setup>
-import { computed, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { labs, statusClass, statusText } from "../../mock/labs";
+import { getLabApi } from "../../services/resources";
 
 const route = useRoute();
 const router = useRouter();
 
 const labId = computed(() => Number(route.params.id));
-const lab = computed(() => labs.find((item) => item.id === labId.value) || null);
+const lab = ref(null);
 
-// 模拟多张实验室图片
+function statusClass(status) {
+  if (status === "available") return "bg-emerald-100 text-emerald-700 ring-1 ring-emerald-600/20";
+  if (status === "booked") return "bg-amber-100 text-amber-700 ring-1 ring-amber-600/20";
+  if (status === "maintenance") return "bg-rose-100 text-rose-700 ring-1 ring-rose-600/20";
+  return "bg-slate-100 text-slate-600 ring-1 ring-slate-600/20";
+}
+
+function statusText(status) {
+  if (status === "available") return "可用";
+  if (status === "booked") return "预约中";
+  if (status === "maintenance") return "维修中";
+  return status;
+}
+
 const labImages = computed(() => {
   if (!lab.value) return [];
-  // 为每个实验室生成多张图片
-  return [
-    lab.value.image,
-    lab.value.image.replace('?w=400', '?w=400&sat=-100'), // 黑白效果
-    lab.value.image.replace('?w=400', '?w=400&hue=30'),   // 色调变化
-  ];
+  const urls = Array.isArray(lab.value.imageUrls) ? lab.value.imageUrls : [];
+  if (urls.length) return urls;
+  return [lab.value.image].filter(Boolean);
 });
 
 const currentImageIndex = ref(0);
@@ -97,6 +107,14 @@ function goToBooking() {
 function goToBookingRecords() {
   router.push('/student/booking-records');
 }
+
+onMounted(async () => {
+  try {
+    lab.value = await getLabApi(labId.value);
+  } catch {
+    lab.value = null;
+  }
+});
 </script>
 
 <template>
@@ -216,8 +234,8 @@ function goToBookingRecords() {
             <div class="flex gap-2">
               <button
                 class="btn-primary flex-1"
-                :disabled="lab.status !== 'AVAILABLE'"
-                :class="lab.status !== 'AVAILABLE' ? 'opacity-50 cursor-not-allowed' : ''"
+                :disabled="lab.status !== 'available'"
+                :class="lab.status !== 'available' ? 'opacity-50 cursor-not-allowed' : ''"
                 @click="goToBooking"
               >
                 立即预约

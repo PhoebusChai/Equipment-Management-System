@@ -1,8 +1,8 @@
 <script setup>
-import { computed, ref, watch } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import AppPagination from "../../components/AppPagination.vue";
-import { labs, statusClass, statusText } from "../../mock/labs";
+import { listLabsApi } from "../../services/resources";
 
 const filters = ref({
   building: "ALL",
@@ -11,11 +11,28 @@ const filters = ref({
 });
 const router = useRouter();
 
-const buildingOptions = computed(() => ["ALL", ...new Set(labs.map((lab) => lab.building))]);
-const collegeOptions = computed(() => ["ALL", ...new Set(labs.map((lab) => lab.college))]);
+const labsSource = ref([]);
+const labs = computed(() => labsSource.value);
+
+function statusClass(status) {
+  if (status === "available") return "bg-emerald-100 text-emerald-700 ring-1 ring-emerald-600/20";
+  if (status === "booked") return "bg-amber-100 text-amber-700 ring-1 ring-amber-600/20";
+  if (status === "maintenance") return "bg-rose-100 text-rose-700 ring-1 ring-rose-600/20";
+  return "bg-slate-100 text-slate-600 ring-1 ring-slate-600/20";
+}
+
+function statusText(status) {
+  if (status === "available") return "可用";
+  if (status === "booked") return "预约中";
+  if (status === "maintenance") return "维修中";
+  return status;
+}
+
+const buildingOptions = computed(() => ["ALL", ...new Set(labs.value.map((lab) => lab.building).filter(Boolean))]);
+const collegeOptions = computed(() => ["ALL", ...new Set(labs.value.map((lab) => lab.college).filter(Boolean))]);
 
 const filteredLabs = computed(() =>
-  labs.filter((lab) => {
+  labs.value.filter((lab) => {
     const byBuilding = filters.value.building === "ALL" || lab.building === filters.value.building;
     const byCollege = filters.value.college === "ALL" || lab.college === filters.value.college;
     const keyword = filters.value.keyword.trim();
@@ -43,6 +60,10 @@ watch([() => filters.value.building, () => filters.value.college, () => filters.
 function openDetail(labId) {
   router.push(`/student/labs-devices/${labId}`);
 }
+
+onMounted(async () => {
+  labsSource.value = await listLabsApi();
+});
 </script>
 
 <template>
@@ -131,8 +152,8 @@ function openDetail(labId) {
               </button>
               <button
                 class="flex-1 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700 shadow-sm transition hover:bg-slate-50 hover:border-slate-400 active:scale-95"
-                :disabled="lab.status !== 'AVAILABLE'"
-                :class="lab.status !== 'AVAILABLE' ? 'opacity-40 cursor-not-allowed hover:bg-white hover:border-slate-300' : ''"
+                :disabled="lab.status !== 'available'"
+                :class="lab.status !== 'available' ? 'opacity-40 cursor-not-allowed hover:bg-white hover:border-slate-300' : ''"
               >
                 立即预约
               </button>

@@ -1,13 +1,11 @@
 <script setup>
-import { computed, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
 import { ElMessage } from "element-plus";
-import { createUser, listUsers, updateUser } from "../../mock/db";
-import { useMockDb } from "../../composables/useMockDb";
-
-useMockDb();
+import { createUserApi, listUsersApi, resetUserPasswordApi, updateUserStatusApi } from "../../services/users";
 
 const keyword = ref("");
 const showCreate = ref(false);
+const usersSource = ref([]);
 const creating = ref({
   email: "",
   realName: "",
@@ -16,7 +14,7 @@ const creating = ref({
 
 const users = computed(() => {
   const kw = keyword.value.trim().toLowerCase();
-  const list = listUsers();
+  const list = usersSource.value;
   if (!kw) return list;
   return list.filter((u) => {
     const hay = `${u.email} ${u.realName || ""} ${u.role}`.toLowerCase();
@@ -39,17 +37,16 @@ function openCreate() {
   showCreate.value = true;
 }
 
-function submitCreate() {
+async function submitCreate() {
   const email = creating.value.email.trim();
   if (!email) return ElMessage.warning("请输入邮箱");
   try {
-    createUser({
+    await createUserApi({
       email,
       realName: creating.value.realName.trim() || email,
-      role: creating.value.role,
-      status: "active",
-      password: "123456"
+      role: creating.value.role
     });
+    usersSource.value = await listUsersApi();
     ElMessage.success("已新增用户（默认密码 123456）");
     showCreate.value = false;
   } catch (e) {
@@ -57,18 +54,19 @@ function submitCreate() {
   }
 }
 
-function toggleDisable(user) {
+async function toggleDisable(user) {
   const next = user.status === "active" ? "disabled" : "active";
-  updateUser(user.id, { status: next });
+  await updateUserStatusApi(user.id, next);
+  usersSource.value = await listUsersApi();
   ElMessage.success(next === "disabled" ? "已禁用该用户" : "已启用该用户");
 }
 
-function resetPassword(user) {
-  updateUser(user.id, { password: "123456" });
+async function resetPassword(user) {
+  await resetUserPasswordApi(user.id, "123456");
   ElMessage.success("已重置密码为 123456");
 }
 
-function importDemoUsers() {
+async function importDemoUsers() {
   const base = Date.now().toString().slice(-5);
   const demo = [
     { role: "student", email: `s${base}01@example.com`, realName: "学生 示例01" },
@@ -79,14 +77,19 @@ function importDemoUsers() {
   let ok = 0;
   for (const u of demo) {
     try {
-      createUser({ ...u, password: "123456", status: "active" });
+      await createUserApi(u);
       ok += 1;
     } catch {
       // ignore duplicate
     }
   }
+  usersSource.value = await listUsersApi();
   ElMessage.success(`已导入 ${ok} 个示例账号`);
 }
+
+onMounted(async () => {
+  usersSource.value = await listUsersApi();
+});
 </script>
 
 <template>
