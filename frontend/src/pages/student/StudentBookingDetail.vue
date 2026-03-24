@@ -5,12 +5,16 @@ import { ElMessage } from "element-plus";
 import { listBookingsApi } from "../../services/bookings";
 import { listDevicesApi, listLabsApi } from "../../services/resources";
 import { getCurrentUser } from "../../services/session";
+import { getReviewByBookingApi, upsertReviewApi } from "../../services/reviews";
 
 const route = useRoute();
 const router = useRouter();
 
 const booking = ref(null);
 const loading = ref(true);
+const reviewForm = ref({ rating: 5, content: "" });
+const reviewSaving = ref(false);
+const existingReview = ref(null);
 
 // 状态配置
 const statusConfig = {
@@ -120,7 +124,39 @@ async function loadBookingDetail() {
     qrCode: `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=BOOKING-${bookingId}`
   };
 
+  if (booking.value.status === "completed") {
+    existingReview.value = await getReviewByBookingApi(bookingId);
+    if (existingReview.value) {
+      reviewForm.value.rating = existingReview.value.rating || 5;
+      reviewForm.value.content = existingReview.value.content || "";
+    }
+  } else {
+    existingReview.value = null;
+    reviewForm.value = { rating: 5, content: "" };
+  }
+
   loading.value = false;
+}
+
+async function submitReview() {
+  if (!booking.value || booking.value.status !== "completed") return;
+  if (!reviewForm.value.content.trim()) {
+    ElMessage.warning("请填写评价内容");
+    return;
+  }
+  reviewSaving.value = true;
+  try {
+    const saved = await upsertReviewApi({
+      bookingId: booking.value.id,
+      userId: currentDbUser.value.id,
+      rating: Number(reviewForm.value.rating || 5),
+      content: reviewForm.value.content.trim()
+    });
+    existingReview.value = saved;
+    ElMessage.success("评价已保存");
+  } finally {
+    reviewSaving.value = false;
+  }
 }
 
 // 取消预约
@@ -340,6 +376,46 @@ const duration = computed(() => {
                   <label class="text-xs text-slate-500">审核意见</label>
                   <div class="mt-1 text-slate-900">{{ booking.approverComment }}</div>
                 </div>
+              </div>
+            </div>
+          </div>
+
+          <div v-if="booking.status === 'completed'" class="rounded-xl border border-slate-200 bg-white shadow-sm">
+            <div class="border-b border-slate-100 px-6 py-3">
+              <h3 class="font-semibold text-slate-900">实验室/设备评价</h3>
+            </div>
+            <div class="space-y-4 p-6">
+              <div>
+                <label class="text-xs text-slate-500">评分</label>
+                <div class="mt-2 flex items-center gap-2">
+                  <button
+                    v-for="star in 5"
+                    :key="star"
+                    type="button"
+                    class="text-xl transition"
+                    :class="star <= reviewForm.rating ? 'text-amber-400' : 'text-slate-300'"
+                    @click="reviewForm.rating = star"
+                  >
+                    ★
+                  </button>
+                  <span class="text-xs text-slate-500">{{ reviewForm.rating }} 分</span>
+                </div>
+              </div>
+              <div>
+                <label class="text-xs text-slate-500">评价内容</label>
+                <textarea
+                  v-model="reviewForm.content"
+                  class="input mt-2 min-h-[110px] resize-y"
+                  placeholder="请填写你对本次使用体验的评价..."
+                />
+              </div>
+              <div class="flex items-center justify-between">
+                <div class="text-xs text-slate-500">
+                  {{ existingReview ? "可编辑并重新保存你的评价" : "每条已完成预约可提交一条评价" }}
+                </div>
+                <button class="btn-primary" :disabled="reviewSaving" @click="submitReview">
+                  {{ reviewSaving ? "保存中..." : (existingReview ? "更新评价" : "提交评价") }}
+                </button>
               </div>
             </div>
           </div>

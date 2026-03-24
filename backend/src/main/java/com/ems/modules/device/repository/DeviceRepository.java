@@ -7,5 +7,7 @@ import java.util.List;
 
 public interface DeviceRepository extends JpaRepository<DeviceEntity, Long> {
     List<DeviceEntity> findByLabId(Long labId);
+    List<DeviceEntity> findByLabIdIn(List<Long> labIds);
+    boolean existsByDeviceCode(String deviceCode);
 }
 

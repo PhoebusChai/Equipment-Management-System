@@ -31,6 +31,7 @@ const searchKeyword = ref('');
 
 // 时间段选择
 const selectedDate = ref('');
+const selectedEndDate = ref('');
 const selectedStartTime = ref('');
 const selectedEndTime = ref('');
 const selectedSlotPreset = ref('');
@@ -102,6 +103,7 @@ onMounted(() => {
   
   // 设置默认日期为今天
   selectedDate.value = localDateString(new Date());
+  selectedEndDate.value = selectedDate.value;
 });
 
 // 加载可用资源
@@ -111,7 +113,7 @@ function loadAvailableResources() {
     const all = labsSource.value;
     availableResources.value = all.filter((lab) => {
       const hasApprovedApply = approvedLabApplyMap.value.has(lab.id);
-      const isAvailable = lab.status === "available";
+      const isAvailable = lab.status !== "maintenance";
       const byKeyword =
         !keyword || lab.name.includes(keyword) || lab.building.includes(keyword) || lab.college.includes(keyword);
       return hasApprovedApply && isAvailable && byKeyword;
@@ -184,7 +186,7 @@ async function checkConflict() {
   if (!validateForm()) return;
 
   const startAt = combineToIso(selectedDate.value, selectedStartTime.value);
-  const endAt = combineToIso(selectedDate.value, selectedEndTime.value);
+  const endAt = combineToIso(selectedEndDate.value, selectedEndTime.value);
   const result = await checkBookingConflictApi({
     resourceType: form.value.resourceType,
     resourceId: Number(form.value.resourceId),
@@ -211,7 +213,7 @@ async function submitBooking() {
   }
 
   const startAt = combineToIso(selectedDate.value, selectedStartTime.value);
-  const endAt = combineToIso(selectedDate.value, selectedEndTime.value);
+  const endAt = combineToIso(selectedEndDate.value, selectedEndTime.value);
 
   try {
     const purposeWithSlot = selectedSlotPreset.value
@@ -240,18 +242,19 @@ function validateForm() {
     ElMessage.warning("请选择资源");
     return false;
   }
-  if (!selectedDate.value || !selectedStartTime.value || !selectedEndTime.value) {
+  if (!selectedDate.value || !selectedEndDate.value || !selectedStartTime.value || !selectedEndTime.value) {
     ElMessage.warning("请选择预约时间");
-    return false;
-  }
-  if (selectedStartTime.value >= selectedEndTime.value) {
-    ElMessage.warning("结束时间必须晚于开始时间");
     return false;
   }
   const now = new Date();
   const start = new Date(`${selectedDate.value}T${selectedStartTime.value}:00`);
+  const end = new Date(`${selectedEndDate.value}T${selectedEndTime.value}:00`);
   if (start.getTime() <= now.getTime()) {
     ElMessage.warning("开始时间必须晚于当前时间");
+    return false;
+  }
+  if (end.getTime() <= start.getTime()) {
+    ElMessage.warning("结束时间必须晚于开始时间");
     return false;
   }
   if (!form.value.purpose.trim()) {
@@ -261,9 +264,13 @@ function validateForm() {
   
   // 组合完整时间
   form.value.startTime = `${selectedDate.value} ${selectedStartTime.value}`;
-  form.value.endTime = `${selectedDate.value} ${selectedEndTime.value}`;
+  form.value.endTime = `${selectedEndDate.value} ${selectedEndTime.value}`;
 
   if (form.value.resourceType === "lab") {
+    if (selectedDate.value !== selectedEndDate.value) {
+      ElMessage.warning("实验室预约暂仅支持同一天内时段");
+      return false;
+    }
     const meta = approvedLabApplyMap.value.get(Number(form.value.resourceId));
     if (!meta) {
       ElMessage.warning("该实验室未在教师开放申请范围内，暂不可预约");
@@ -298,8 +305,15 @@ watch([() => form.value.resourceType, searchKeyword], () => {
 
 watch(selectedStartTime, (val) => {
   if (!val) return;
-  if (selectedEndTime.value && selectedEndTime.value <= val) {
+  if (selectedDate.value === selectedEndDate.value && selectedEndTime.value && selectedEndTime.value <= val) {
     selectedEndTime.value = "";
+  }
+});
+
+watch(selectedDate, (val) => {
+  if (!val) return;
+  if (!selectedEndDate.value || selectedEndDate.value < val) {
+    selectedEndDate.value = val;
   }
 });
 
@@ -493,12 +507,20 @@ watch(selectedStartTime, (val) => {
 
               <div class="mt-3">
                 <label class="block text-xs font-medium text-slate-600">预约日期</label>
-                <input
-                  v-model="selectedDate"
-                  type="date"
-                  class="input mt-1"
-                  :min="localDateString(new Date())"
-                />
+                <div class="mt-1 grid grid-cols-2 gap-3">
+                  <input
+                    v-model="selectedDate"
+                    type="date"
+                    class="input"
+                    :min="localDateString(new Date())"
+                  />
+                  <input
+                    v-model="selectedEndDate"
+                    type="date"
+                    class="input"
+                    :min="selectedDate || localDateString(new Date())"
+                  />
+                </div>
               </div>
 
               <div class="mt-3">

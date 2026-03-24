@@ -8,6 +8,8 @@ import com.ems.modules.apply.repository.DeviceApplyFormRepository;
 import com.ems.modules.apply.repository.LabApplyFormRepository;
 import com.ems.modules.apply.repository.ScrapApplyFormRepository;
 import com.ems.modules.common.enums.ApplyStatus;
+import com.ems.modules.device.dto.DeviceCreateRequest;
+import com.ems.modules.device.service.DeviceService;
 import com.ems.modules.lab.service.LabService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -24,17 +26,20 @@ public class ApplicationService {
     private final DeviceApplyFormRepository deviceApplyFormRepository;
     private final ScrapApplyFormRepository scrapApplyFormRepository;
     private final LabService labService;
+    private final DeviceService deviceService;
 
     public ApplicationService(
             LabApplyFormRepository labApplyFormRepository,
             DeviceApplyFormRepository deviceApplyFormRepository,
             ScrapApplyFormRepository scrapApplyFormRepository,
-            LabService labService
+            LabService labService,
+            DeviceService deviceService
     ) {
         this.labApplyFormRepository = labApplyFormRepository;
         this.deviceApplyFormRepository = deviceApplyFormRepository;
         this.scrapApplyFormRepository = scrapApplyFormRepository;
         this.labService = labService;
+        this.deviceService = deviceService;
     }
 
     public List<ApplicationResponse> listAll() {
@@ -107,9 +112,9 @@ public class ApplicationService {
             if (ApplyStatus.APPROVED.name().equals(targetStatus)) {
                 Long labId = extractLabIdFromReason(saved.getReason());
                 if (labId != null) {
-                    labService.updateStatusById(labId, "IN_USE");
+                    labService.updateStatusById(labId, "AVAILABLE");
                 } else {
-                    labService.markInUseByName(saved.getLabName());
+                    labService.updateStatusByName(saved.getLabName(), "AVAILABLE");
                 }
             }
             return toLabApplyResponse(saved);
@@ -120,7 +125,11 @@ public class ApplicationService {
             e.setReviewerId(request.reviewerId());
             e.setReviewedAt(LocalDateTime.now());
             e.setReviewComment(request.reviewComment());
-            return toDeviceApplyResponse(deviceApplyFormRepository.save(e));
+            DeviceApplyFormEntity saved = deviceApplyFormRepository.save(e);
+            if (ApplyStatus.APPROVED.name().equals(targetStatus)) {
+                autoCreateApprovedDevices(saved);
+            }
+            return toDeviceApplyResponse(saved);
         }
         if ("scrap".equals(normalized)) {
             ScrapApplyFormEntity e = scrapApplyFormRepository.findById(id).orElseThrow(() -> new IllegalArgumentException("报废申请不存在"));
@@ -171,12 +180,17 @@ public class ApplicationService {
     }
 
     private ApplicationResponse toDeviceApplyResponse(DeviceApplyFormEntity e) {
+        String detail =
+                "类别：" + (e.getCategory() == null ? "-" : e.getCategory()) + "\n" +
+                "数量：" + (e.getQuantity() == null ? "-" : e.getQuantity()) + "\n" +
+                "预算：" + (e.getExpectedBudget() == null ? "-" : e.getExpectedBudget()) + "\n" +
+                "理由：" + (e.getReason() == null ? "" : e.getReason());
         return new ApplicationResponse(
                 "DEVICE_APPLY",
                 e.getId(),
                 e.getApplicantId(),
                 e.getDeviceName(),
-                e.getReason(),
+                detail,
                 null,
                 null,
                 null,
@@ -208,6 +222,29 @@ public class ApplicationService {
                 e.getReviewComment(),
                 null
         );
+    }
+
+    private void autoCreateApprovedDevices(DeviceApplyFormEntity apply) {
+        int qty = apply.getQuantity() == null ? 0 : Math.max(0, apply.getQuantity());
+        if (qty <= 0) return;
+        String category = apply.getCategory() == null ? "其他" : apply.getCategory().trim();
+        String location = "待分配";
+        String name = apply.getDeviceName() == null ? "未命名设备" : apply.getDeviceName().trim();
+        Long defaultLabId = labService.listAll().stream().findFirst().map((x) -> x.id()).orElse(null);
+        if (defaultLabId == null) {
+            throw new IllegalArgumentException("缺少实验室基础数据，无法自动入库设备");
+        }
+        String prefix = "DEV-AUTO-" + apply.getId() + "-";
+        for (int i = 1; i <= qty; i++) {
+            deviceService.create(new DeviceCreateRequest(
+                    defaultLabId,
+                    prefix + i,
+                    qty == 1 ? name : (name + "-" + i),
+                    category,
+                    location,
+                    "AVAILABLE"
+            ));
+        }
     }
 }
 

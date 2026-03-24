@@ -1,55 +1,19 @@
 <script setup>
 import { computed, onMounted, ref } from "vue";
 import { ElMessage } from "element-plus";
-import DataTable from "../../components/DataTable.vue";
 import { approveApplicationApi, APPLICATION_STATUS, listApplicationsApi, rejectApplicationApi } from "../../services/applications";
-import { listDevicesApi } from "../../services/resources";
 import { listUsersApi } from "../../services/users";
 import { getCurrentUser } from "../../services/session";
 
 const currentUser = computed(() => getCurrentUser());
 const currentDbUser = computed(() => currentUser.value || null);
-
-// 资产台账概览（从 db 动态计算：按 category 聚合）
-const assetColumns = [
-  { key: "category", label: "资产类别" },
-  { key: "count", label: "数量" },
-  { key: "status", label: "状态" }
-];
-
-const assetRows = computed(() => {
-  const devices = devicesSource.value;
-  const map = new Map();
-  for (const d of devices) {
-    const key = d.category || "其他";
-    const bucket = map.get(key) || { category: key, count: 0, maintenance: 0 };
-    bucket.count += 1;
-    if (d.status === "maintenance") bucket.maintenance += 1;
-    map.set(key, bucket);
-  }
-  return [...map.values()].map((x) => ({
-    category: x.category,
-    count: `${x.count} 台`,
-    status: x.maintenance > 0 ? `部分在修（${x.maintenance}）` : "在用"
-  }));
-});
-
-// 申请单审核
-const filterType = ref("all");
-const filterStatus = ref(APPLICATION_STATUS.SUBMITTED);
+const keyword = ref("");
+const filterStatus = ref("all");
 const noteMap = ref({});
 const applicationsSource = ref([]);
-const devicesSource = ref([]);
 const usersSource = ref([]);
 const detailVisible = ref(false);
 const detailApp = ref(null);
-
-function typeText(type) {
-  if (type === "lab_apply") return "实验室申请";
-  if (type === "device_apply") return "设备申请";
-  if (type === "scrap_apply") return "报废申请";
-  return type;
-}
 
 function statusText(status) {
   if (status === APPLICATION_STATUS.SUBMITTED) return "待审核";
@@ -65,12 +29,44 @@ function statusPill(status) {
   return "bg-slate-100 text-slate-600";
 }
 
-const applications = computed(() => {
-  let list = applicationsSource.value.slice();
-  if (filterType.value !== "all") list = list.filter((a) => a.type === filterType.value);
-  if (filterStatus.value !== "all") list = list.filter((a) => a.status === filterStatus.value);
+function parseDeviceDetail(detail) {
+  const txt = String(detail || "");
+  const rows = txt.split("\n");
+  const get = (k) => rows.find((r) => r.startsWith(`${k}：`) || r.startsWith(`${k}:`))?.split(/：|:/).slice(1).join(":").trim() || "";
+  return {
+    category: get("类别") || "-",
+    quantity: get("数量") || "-",
+    budget: get("预算") || "-",
+    reason: get("理由") || txt || "-"
+  };
+}
+
+const deviceApplications = computed(() => {
+  let list = applicationsSource.value.filter((a) => a.type === "device_apply");
+  if (filterStatus.value !== "all") {
+    list = list.filter((a) => a.status === filterStatus.value);
+  }
+  const kw = keyword.value.trim().toLowerCase();
+  if (kw) {
+    list = list.filter((a) => {
+      const meta = parseDeviceDetail(a.detail);
+      return (
+        String(a.title || "").toLowerCase().includes(kw) ||
+        String(meta.category || "").toLowerCase().includes(kw) ||
+        String(meta.reason || "").toLowerCase().includes(kw)
+      );
+    });
+  }
+  list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   return list;
 });
+
+const stats = computed(() => ({
+  total: deviceApplications.value.length,
+  submitted: deviceApplications.value.filter((x) => x.status === APPLICATION_STATUS.SUBMITTED).length,
+  approved: deviceApplications.value.filter((x) => x.status === APPLICATION_STATUS.APPROVED).length,
+  rejected: deviceApplications.value.filter((x) => x.status === APPLICATION_STATUS.REJECTED).length
+}));
 
 function applicantName(app) {
   const u = usersSource.value.find((x) => x.id === app.createdByUserId);
@@ -85,22 +81,13 @@ function setNote(appId, val) {
   noteMap.value = { ...noteMap.value, [appId]: val };
 }
 
-function toApiType(type) {
-  if (type === "lab_apply") return "lab";
-  if (type === "device_apply") return "device";
-  if (type === "scrap_apply") return "scrap";
-  return "";
-}
-
 async function loadApplications() {
   applicationsSource.value = await listApplicationsApi();
 }
 
 async function approve(app) {
   if (!currentDbUser.value) return;
-  const type = toApiType(app.type);
-  if (!type) return ElMessage.warning("暂不支持该申请类型");
-  await approveApplicationApi(type, app.id, {
+  await approveApplicationApi("device", app.id, {
     reviewerId: currentDbUser.value.id,
     reviewComment: getNote(app.id)
   });
@@ -110,9 +97,7 @@ async function approve(app) {
 
 async function reject(app) {
   if (!currentDbUser.value) return;
-  const type = toApiType(app.type);
-  if (!type) return ElMessage.warning("暂不支持该申请类型");
-  await rejectApplicationApi(type, app.id, {
+  await rejectApplicationApi("device", app.id, {
     reviewerId: currentDbUser.value.id,
     reviewComment: getNote(app.id)
   });
@@ -125,13 +110,6 @@ function openDetail(app) {
   detailVisible.value = true;
 }
 
-const flowColumns = [
-  { key: "type", label: "申请类型" },
-  { key: "title", label: "标题" },
-  { key: "time", label: "提交时间" },
-  { key: "status", label: "状态" }
-];
-
 function pad2(n) {
   return String(n).padStart(2, "0");
 }
@@ -142,22 +120,8 @@ function formatDate(iso) {
   return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
 }
 
-const flowRows = computed(() =>
-  applicationsSource.value
-    .slice()
-    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-    .slice(0, 6)
-    .map((a) => ({
-      type: typeText(a.type),
-      title: a.title,
-      time: formatDate(a.createdAt),
-      status: statusText(a.status)
-    }))
-);
-
 onMounted(async () => {
   await loadApplications();
-  devicesSource.value = await listDevicesApi();
   usersSource.value = await listUsersApi();
 });
 </script>
@@ -165,61 +129,60 @@ onMounted(async () => {
 <template>
   <div class="flex h-full flex-col bg-white">
     <div class="border-b border-slate-200 px-6 py-4">
-      <h2 class="text-xl font-semibold text-slate-900">设备资产管理</h2>
-      <p class="mt-1 text-sm text-slate-500">资产入库、维修工单审核跟踪、报废与采购流程管理。</p>
+      <h2 class="text-xl font-semibold text-slate-900">设备申请管理</h2>
+      <p class="mt-1 text-sm text-slate-500">基于当前申请流程审核教师提交的设备采购/增配申请。</p>
     </div>
 
     <div class="flex-1 overflow-auto p-6 space-y-6">
-      <div class="flex flex-wrap gap-3">
-        <button class="btn-secondary">资产入库登记</button>
-        <button class="btn-secondary">维修工单审核</button>
-        <button class="btn-primary">申请单审核</button>
-      </div>
-
-      <div>
-        <h3 class="mb-3 text-sm font-medium text-slate-700">资产台账概览</h3>
-        <DataTable :columns="assetColumns" :rows="assetRows" />
-      </div>
-
-      <div>
-        <h3 class="mb-3 text-sm font-medium text-slate-700">近期申请单流转</h3>
-        <DataTable :columns="flowColumns" :rows="flowRows" />
-      </div>
-
-      <div>
-        <div class="mb-3 flex flex-wrap items-center justify-between gap-3">
-          <h3 class="text-sm font-medium text-slate-700">申请单审核（可操作）</h3>
-          <div class="flex flex-wrap gap-2">
-            <select v-model="filterType" class="input w-40">
-              <option value="all">全部类型</option>
-              <option value="lab_apply">实验室申请</option>
-              <option value="device_apply">设备申请</option>
-              <option value="scrap_apply">报废申请</option>
-            </select>
-            <select v-model="filterStatus" class="input w-36">
-              <option :value="APPLICATION_STATUS.SUBMITTED">仅待审核</option>
-              <option value="all">全部状态</option>
-              <option :value="APPLICATION_STATUS.APPROVED">已通过</option>
-              <option :value="APPLICATION_STATUS.REJECTED">已驳回</option>
-            </select>
-          </div>
+      <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <div class="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+          <div class="text-xs text-slate-500">当前筛选总数</div>
+          <div class="mt-1 text-2xl font-semibold text-slate-900">{{ stats.total }}</div>
         </div>
-
-        <div v-if="!currentDbUser" class="rounded-xl border border-slate-200 bg-slate-50 p-6 text-sm text-slate-600">
-          未登录或当前账号无效，请重新登录管理员账号。
+        <div class="rounded-xl border border-amber-100 bg-amber-50/40 p-3 shadow-sm">
+          <div class="text-xs text-amber-700">待审核</div>
+          <div class="mt-1 text-2xl font-semibold text-amber-900">{{ stats.submitted }}</div>
         </div>
+        <div class="rounded-xl border border-emerald-100 bg-emerald-50/40 p-3 shadow-sm">
+          <div class="text-xs text-emerald-700">已通过</div>
+          <div class="mt-1 text-2xl font-semibold text-emerald-900">{{ stats.approved }}</div>
+        </div>
+        <div class="rounded-xl border border-rose-100 bg-rose-50/40 p-3 shadow-sm">
+          <div class="text-xs text-rose-700">已驳回</div>
+          <div class="mt-1 text-2xl font-semibold text-rose-900">{{ stats.rejected }}</div>
+        </div>
+      </div>
 
-        <div v-else class="space-y-3">
-          <div v-for="app in applications" :key="app.id" class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+      <div class="rounded-xl border border-slate-200 bg-slate-50 p-4">
+        <div class="grid w-full max-w-full grid-cols-[minmax(0,1fr)_110px] items-center gap-3">
+          <input v-model="keyword" class="input min-w-0 w-full" placeholder="搜索设备名称/类别/理由..." />
+          <select v-model="filterStatus" class="input w-[110px]">
+            <option value="all">全部状态</option>
+            <option :value="APPLICATION_STATUS.SUBMITTED">待审核</option>
+            <option :value="APPLICATION_STATUS.APPROVED">已通过</option>
+            <option :value="APPLICATION_STATUS.REJECTED">已驳回</option>
+          </select>
+        </div>
+      </div>
+
+      <div v-if="!currentDbUser" class="rounded-xl border border-slate-200 bg-slate-50 p-6 text-sm text-slate-600">
+        未登录或当前账号无效，请重新登录管理员账号。
+      </div>
+
+      <div v-else class="space-y-3">
+          <div v-for="app in deviceApplications" :key="app.id" class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
             <div class="flex items-start justify-between gap-4">
               <div class="min-w-0 flex-1">
                 <div class="flex flex-wrap items-center gap-2">
                   <div class="truncate text-base font-semibold text-slate-900">{{ app.title }}</div>
-                  <span class="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700">{{ typeText(app.type) }}</span>
+                  <span class="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700">设备申请</span>
                   <span class="rounded-full px-2 py-0.5 text-xs font-medium" :class="statusPill(app.status)">{{ statusText(app.status) }}</span>
                 </div>
-                <div class="mt-2 text-sm text-slate-700">
-                  <span class="font-medium text-slate-800">详情：</span>{{ app.detail || "-" }}
+                <div class="mt-2 grid grid-cols-2 gap-3 rounded-lg border border-slate-100 bg-slate-50 p-3 text-sm text-slate-700">
+                  <div><span class="font-medium text-slate-800">类别：</span>{{ parseDeviceDetail(app.detail).category }}</div>
+                  <div><span class="font-medium text-slate-800">数量：</span>{{ parseDeviceDetail(app.detail).quantity }}</div>
+                  <div><span class="font-medium text-slate-800">预算：</span>{{ parseDeviceDetail(app.detail).budget }}</div>
+                  <div class="col-span-2"><span class="font-medium text-slate-800">理由：</span>{{ parseDeviceDetail(app.detail).reason }}</div>
                 </div>
                 <div class="mt-2 text-xs text-slate-500">申请人：{{ applicantName(app) }}</div>
                 <div class="mt-2 text-xs text-slate-500">提交时间：{{ formatDate(app.createdAt) }}</div>
@@ -253,10 +216,9 @@ onMounted(async () => {
             </div>
           </div>
 
-          <div v-if="applications.length === 0" class="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-10 text-center text-sm text-slate-500">
+          <div v-if="deviceApplications.length === 0" class="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-10 text-center text-sm text-slate-500">
             暂无符合条件的申请单
           </div>
-        </div>
       </div>
     </div>
   </div>
@@ -265,14 +227,19 @@ onMounted(async () => {
     <div v-if="detailApp" class="space-y-3 text-sm">
       <div class="grid grid-cols-2 gap-3">
         <div><span class="text-slate-500">申请ID：</span>{{ detailApp.id }}</div>
-        <div><span class="text-slate-500">申请类型：</span>{{ typeText(detailApp.type) }}</div>
+        <div><span class="text-slate-500">申请类型：</span>设备申请</div>
         <div><span class="text-slate-500">申请人：</span>{{ applicantName(detailApp) }}</div>
         <div><span class="text-slate-500">状态：</span>{{ statusText(detailApp.status) }}</div>
         <div class="col-span-2"><span class="text-slate-500">标题：</span>{{ detailApp.title || "-" }}</div>
       </div>
       <div class="rounded-lg border border-slate-200 bg-slate-50 p-3">
         <div class="mb-2 text-xs font-semibold text-slate-500">申请内容</div>
-        <pre class="whitespace-pre-wrap break-words text-sm text-slate-700">{{ detailApp.detail || "-" }}</pre>
+        <div class="grid grid-cols-2 gap-3 text-sm text-slate-700">
+          <div><span class="font-medium text-slate-800">类别：</span>{{ parseDeviceDetail(detailApp.detail).category }}</div>
+          <div><span class="font-medium text-slate-800">数量：</span>{{ parseDeviceDetail(detailApp.detail).quantity }}</div>
+          <div><span class="font-medium text-slate-800">预算：</span>{{ parseDeviceDetail(detailApp.detail).budget }}</div>
+          <div class="col-span-2"><span class="font-medium text-slate-800">理由：</span>{{ parseDeviceDetail(detailApp.detail).reason }}</div>
+        </div>
       </div>
     </div>
     <template #footer>

@@ -12,6 +12,8 @@ public interface BookingRepository extends JpaRepository<BookingEntity, Long> {
 
     List<BookingEntity> findByApproverIdOrderByCreatedAtDesc(Long approverId);
 
+    List<BookingEntity> findByResourceTypeAndResourceIdInOrderByCreatedAtDesc(String resourceType, List<Long> resourceIds);
+
     List<BookingEntity> findByResourceTypeAndResourceIdAndStatusInAndStartTimeLessThanAndEndTimeGreaterThan(
             String resourceType,
             Long resourceId,

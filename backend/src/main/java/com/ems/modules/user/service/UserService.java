@@ -1,6 +1,7 @@
 package com.ems.modules.user.service;
 
 import com.ems.modules.common.enums.UserStatus;
+import com.ems.modules.user.dto.UserBasicResponse;
 import com.ems.modules.user.dto.UserCreateRequest;
 import com.ems.modules.user.dto.UserPasswordResetRequest;
 import com.ems.modules.user.dto.UserResponse;
@@ -11,7 +12,9 @@ import com.ems.modules.user.repository.UserRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 @Service
 public class UserService {
@@ -24,6 +27,12 @@ public class UserService {
 
     public List<UserResponse> listAll() {
         return userRepository.findAll().stream().map(this::toResponse).toList();
+    }
+
+    public List<UserBasicResponse> listBasicByIds(List<Long> ids) {
+        if (ids == null || ids.isEmpty()) return List.of();
+        Set<Long> unique = new HashSet<>(ids);
+        return userRepository.findAllById(unique).stream().map(this::toBasicResponse).toList();
     }
 
     @Transactional
@@ -78,6 +87,15 @@ public class UserService {
                 e.getRoleCode(),
                 e.getStatus(),
                 e.getCreatedAt()
+        );
+    }
+
+    private UserBasicResponse toBasicResponse(UserEntity e) {
+        return new UserBasicResponse(
+                e.getId(),
+                e.getRealName(),
+                e.getRoleCode(),
+                e.getStatus()
         );
     }
 }

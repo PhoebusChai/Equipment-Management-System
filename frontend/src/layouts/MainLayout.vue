@@ -7,7 +7,6 @@ import {
   CalendarClock,
   Wrench,
   Database,
-  ShieldCheck,
   Building2
 } from "lucide-vue-next";
 import TopNavBar from "../components/TopNavBar.vue";
@@ -22,21 +21,35 @@ const role = computed(() => route.meta.role || "student");
 const menuMap = {
   student: [
     { name: "仪表盘", icon: LayoutDashboard, to: "/student/dashboard" },
-    { name: "实验室与设备", icon: Database, to: "/student/labs-devices" },
+    { name: "实验室预约", icon: Database, to: "/student/labs-devices" },
     { name: "我的预约", icon: CalendarClock, to: "/student/booking-records" },
     { name: "个人设置", icon: UserRound, to: "/student/settings" }
   ],
   teacher: [
     { name: "教师首页", icon: LayoutDashboard, to: "/teacher/dashboard" },
-    { name: "实验室管理", icon: Database, to: "/teacher/labs" },
-    { name: "预约监管", icon: CalendarClock, to: "/teacher/schedule" },
+    {
+      name: "实验室管理",
+      icon: Database,
+      children: [
+        { name: "实验室信息管理", to: "/teacher/labs/info" },
+        { name: "实验室申请管理", to: "/teacher/labs/applications" },
+        { name: "学生申请管理", to: "/teacher/labs/student-applications" }
+      ]
+    },
+    { name: "设备管理", icon: Database, to: "/teacher/devices" },
     { name: "报修工单", icon: Wrench, to: "/teacher/repairs" }
   ],
   admin: [
     { name: "管理员首页", icon: LayoutDashboard, to: "/admin/dashboard" },
     { name: "用户管理", icon: UserRound, to: "/admin/users" },
-    { name: "系统管理", icon: ShieldCheck, to: "/admin/system" },
-    { name: "设备资产", icon: Database, to: "/admin/assets" },
+    {
+      name: "设备管理",
+      icon: Database,
+      children: [
+        { name: "设备信息管理", to: "/admin/devices/info" },
+        { name: "设备申请管理", to: "/admin/devices/applications" }
+      ]
+    },
     {
       name: "实验室管理",
       icon: Building2,
@@ -45,6 +58,7 @@ const menuMap = {
         { name: "实验室申请管理", to: "/admin/labs/applications" }
       ]
     },
+    { name: "评论管理", icon: CalendarClock, to: "/admin/reviews" },
     { name: "数据分析", icon: CalendarClock, to: "/admin/reports" }
   ]
 };

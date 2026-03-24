@@ -52,24 +52,48 @@ public class DeviceEntity {
         return id;
     }
 
+    public void setLabId(Long labId) {
+        this.labId = labId;
+    }
+
     public Long getLabId() {
         return labId;
+    }
+
+    public void setDeviceCode(String deviceCode) {
+        this.deviceCode = deviceCode;
     }
 
     public String getDeviceCode() {
         return deviceCode;
     }
 
+    public void setDeviceName(String deviceName) {
+        this.deviceName = deviceName;
+    }
+
     public String getDeviceName() {
         return deviceName;
+    }
+
+    public void setCategory(String category) {
+        this.category = category;
     }
 
     public String getCategory() {
         return category;
     }
 
+    public void setLocation(String location) {
+        this.location = location;
+    }
+
     public String getLocation() {
         return location;
+    }
+
+    public void setStatus(String status) {
+        this.status = status;
     }
 
     public String getStatus() {

@@ -124,11 +124,22 @@ public class LabService {
 
     @Transactional
     public void markInUseByName(String labName) {
+        updateStatusByName(labName, "IN_USE");
+    }
+
+    @Transactional
+    public void updateStatusByName(String labName, String status) {
         if (labName == null || labName.isBlank()) return;
         LabEntity entity = labRepository.findFirstByLabNameIgnoreCase(labName.trim());
         if (entity == null) return;
-        entity.setStatus("IN_USE");
+        entity.setStatus(status == null ? "AVAILABLE" : status.toUpperCase());
         labRepository.save(entity);
+    }
+
+    public Long findIdByName(String labName) {
+        if (labName == null || labName.isBlank()) return null;
+        LabEntity entity = labRepository.findFirstByLabNameIgnoreCase(labName.trim());
+        return entity == null ? null : entity.getId();
     }
 
     private List<String> saveImages(List<MultipartFile> images) {

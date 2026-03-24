@@ -1,8 +1,10 @@
 package com.ems.modules.device.controller;
 
 import com.ems.common.api.ApiResponse;
+import com.ems.modules.device.dto.DeviceCreateRequest;
 import com.ems.modules.device.dto.DeviceResponse;
 import com.ems.modules.device.service.DeviceService;
+import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -25,6 +27,11 @@ public class DeviceController {
     @GetMapping("/{id}")
     public ApiResponse<DeviceResponse> detail(@PathVariable Long id) {
         return ApiResponse.ok(deviceService.getById(id));
+    }
+
+    @PostMapping
+    public ApiResponse<DeviceResponse> create(@Valid @RequestBody DeviceCreateRequest request) {
+        return ApiResponse.ok("创建成功", deviceService.create(request));
     }
 }
 

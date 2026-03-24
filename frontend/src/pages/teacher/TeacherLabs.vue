@@ -1,13 +1,15 @@
 <script setup>
 import { computed, onMounted, ref } from "vue";
+import { useRoute } from "vue-router";
 import { ElMessage, ElMessageBox } from "element-plus";
 import AppPagination from "../../components/AppPagination.vue";
 import { APPLICATION_STATUS, createLabApplicationApi, listApplicationsApi } from "../../services/applications";
 import { getCurrentUser } from "../../services/session";
 import { listLabsApi } from "../../services/resources";
 
+const route = useRoute();
 const currentUser = computed(() => getCurrentUser());
-const pageTab = ref("labInfo");
+const currentSection = computed(() => (route.path.includes("/teacher/labs/applications") ? "labApply" : "labInfo"));
 const keyword = ref("");
 const typeFilter = ref("all");
 const statusFilter = ref("all");
@@ -21,11 +23,6 @@ const applySubmitting = ref(false);
 const retryFromRejectedId = ref(null);
 const detailVisible = ref(false);
 const detailLab = ref(null);
-
-const pageTabs = [
-  { key: "labInfo", label: "实验室信息管理" },
-  { key: "labApply", label: "实验室申请管理" }
-];
 
 const createLabForm = ref({
   labId: null,
@@ -309,24 +306,14 @@ onMounted(loadData);
 <template>
   <div class="flex h-full w-full flex-col bg-white">
     <div class="border-b border-slate-200 px-6 py-4">
-      <h2 class="text-xl font-semibold text-slate-900">实验室管理</h2>
-      <p class="mt-1 text-sm text-slate-500">教师端支持实验室申请，实验室信息仅展示本人已通过的申请。</p>
+      <h2 class="text-xl font-semibold text-slate-900">{{ currentSection === "labInfo" ? "实验室信息管理" : "实验室申请管理" }}</h2>
+      <p class="mt-1 text-sm text-slate-500">
+        {{ currentSection === "labInfo" ? "展示本人已通过申请的实验室信息。" : "发起、查看与重提实验室开放申请。" }}
+      </p>
     </div>
 
     <div class="flex min-h-0 flex-1 flex-col gap-4 p-6">
-      <div class="flex flex-wrap gap-2">
-        <button
-          v-for="tab in pageTabs"
-          :key="tab.key"
-          class="rounded-lg border px-3 py-2 text-sm transition"
-          :class="pageTab === tab.key ? 'border-brand-500 bg-brand-50 text-brand-700' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'"
-          @click="pageTab = tab.key"
-        >
-          {{ tab.label }}
-        </button>
-      </div>
-
-      <div v-if="pageTab === 'labInfo'" class="flex min-h-0 flex-1 flex-col gap-4">
+      <div v-if="currentSection === 'labInfo'" class="flex min-h-0 flex-1 flex-col gap-4">
         <div class="grid gap-3 sm:grid-cols-3 lg:grid-cols-4">
           <div class="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
             <div class="text-xs text-slate-500">我的实验室</div>

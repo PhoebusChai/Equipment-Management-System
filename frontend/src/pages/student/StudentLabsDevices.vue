@@ -3,6 +3,7 @@ import { computed, onMounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import AppPagination from "../../components/AppPagination.vue";
 import { listLabsApi } from "../../services/resources";
+import { APPLICATION_STATUS, listApplicationsApi } from "../../services/applications";
 
 const filters = ref({
   building: "ALL",
@@ -12,18 +13,51 @@ const filters = ref({
 const router = useRouter();
 
 const labsSource = ref([]);
-const labs = computed(() => labsSource.value);
+const applicationsSource = ref([]);
+
+function parseLabIdFromDetail(detail) {
+  const txt = String(detail || "");
+  const rows = txt.split("\n");
+  const line = rows.find((r) => r.startsWith("labId：") || r.startsWith("labId:"));
+  if (!line) return null;
+  const val = line.split(/：|:/).slice(1).join(":").trim();
+  const id = Number(val);
+  return Number.isFinite(id) ? id : null;
+}
+
+const approvedLabIds = computed(() => {
+  const ids = new Set();
+  for (const app of applicationsSource.value || []) {
+    if (app.type !== "lab_apply" || app.status !== APPLICATION_STATUS.APPROVED) continue;
+    const labId = parseLabIdFromDetail(app.detail);
+    if (labId) ids.add(labId);
+  }
+  return ids;
+});
+
+function displayStatus(lab) {
+  if (lab.status === "maintenance") return "maintenance";
+  if (!approvedLabIds.value.has(lab.id)) return "unopened";
+  return "opened";
+}
+
+const labs = computed(() =>
+  labsSource.value.map((lab) => ({
+    ...lab,
+    displayStatus: displayStatus(lab)
+  }))
+);
 
 function statusClass(status) {
-  if (status === "available") return "bg-emerald-100 text-emerald-700 ring-1 ring-emerald-600/20";
-  if (status === "booked") return "bg-amber-100 text-amber-700 ring-1 ring-amber-600/20";
+  if (status === "opened") return "bg-emerald-100 text-emerald-700 ring-1 ring-emerald-600/20";
+  if (status === "unopened") return "bg-slate-100 text-slate-600 ring-1 ring-slate-600/20";
   if (status === "maintenance") return "bg-rose-100 text-rose-700 ring-1 ring-rose-600/20";
   return "bg-slate-100 text-slate-600 ring-1 ring-slate-600/20";
 }
 
 function statusText(status) {
-  if (status === "available") return "可用";
-  if (status === "booked") return "预约中";
+  if (status === "opened") return "开放中";
+  if (status === "unopened") return "暂未开放";
   if (status === "maintenance") return "维修中";
   return status;
 }
@@ -61,8 +95,22 @@ function openDetail(labId) {
   router.push(`/student/labs-devices/${labId}`);
 }
 
+function goToBooking(lab) {
+  if (lab.displayStatus !== "opened") return;
+  router.push({
+    path: "/student/booking-records/new",
+    query: {
+      labId: lab.id,
+      labName: lab.name,
+      type: "lab"
+    }
+  });
+}
+
 onMounted(async () => {
-  labsSource.value = await listLabsApi();
+  const [labs, applications] = await Promise.all([listLabsApi(), listApplicationsApi()]);
+  labsSource.value = labs || [];
+  applicationsSource.value = applications || [];
 });
 </script>
 
@@ -114,9 +162,9 @@ onMounted(async () => {
                 </h3>
                 <span 
                   class="flex-shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium shadow-sm" 
-                  :class="statusClass(lab.status)"
+                  :class="statusClass(lab.displayStatus)"
                 >
-                  {{ statusText(lab.status) }}
+                  {{ statusText(lab.displayStatus) }}
                 </span>
               </div>
               
@@ -152,8 +200,9 @@ onMounted(async () => {
               </button>
               <button
                 class="flex-1 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700 shadow-sm transition hover:bg-slate-50 hover:border-slate-400 active:scale-95"
-                :disabled="lab.status !== 'available'"
-                :class="lab.status !== 'available' ? 'opacity-40 cursor-not-allowed hover:bg-white hover:border-slate-300' : ''"
+                :disabled="lab.displayStatus !== 'opened'"
+                :class="lab.displayStatus !== 'opened' ? 'opacity-40 cursor-not-allowed hover:bg-white hover:border-slate-300' : ''"
+                @click="goToBooking(lab)"
               >
                 立即预约
               </button>

@@ -7,5 +7,7 @@ import java.util.List;
 
 public interface LabApplyFormRepository extends JpaRepository<LabApplyFormEntity, Long> {
     List<LabApplyFormEntity> findByStatusAndLabNameIgnoreCase(String status, String labName);
+    List<LabApplyFormEntity> findByStatusAndReviewerId(String status, Long reviewerId);
+    List<LabApplyFormEntity> findByStatusAndApplicantId(String status, Long applicantId);
 }
 

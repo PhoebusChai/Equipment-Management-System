@@ -26,6 +26,18 @@ export async function listUsersApi() {
   return (res.data || []).map(mapUser);
 }
 
+export async function listUsersBasicApi(ids = []) {
+  const arr = Array.isArray(ids) ? ids.filter((x) => Number.isFinite(Number(x))).map((x) => Number(x)) : [];
+  if (!arr.length) return [];
+  const res = await http.get("/users/basic", { params: { ids: arr.join(",") } });
+  return (res.data || []).map((x) => ({
+    id: x.id,
+    realName: x.realName || "",
+    role: String(x.role || "").toLowerCase(),
+    status: fromApiStatus(x.status)
+  }));
+}
+
 export async function createUserApi(payload) {
   const res = await http.post("/users", {
     email: payload.email,

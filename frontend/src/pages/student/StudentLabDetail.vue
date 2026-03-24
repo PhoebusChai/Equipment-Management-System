@@ -2,23 +2,44 @@
 import { computed, onMounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { getLabApi } from "../../services/resources";
+import { APPLICATION_STATUS, listApplicationsApi } from "../../services/applications";
+import { listReviewsByResourceApi } from "../../services/reviews";
 
 const route = useRoute();
 const router = useRouter();
 
 const labId = computed(() => Number(route.params.id));
 const lab = ref(null);
+const isLabOpened = ref(false);
+const reviews = ref([]);
+
+function parseLabIdFromDetail(detail) {
+  const txt = String(detail || "");
+  const rows = txt.split("\n");
+  const line = rows.find((r) => r.startsWith("labId：") || r.startsWith("labId:"));
+  if (!line) return null;
+  const val = line.split(/：|:/).slice(1).join(":").trim();
+  const id = Number(val);
+  return Number.isFinite(id) ? id : null;
+}
+
+const displayStatus = computed(() => {
+  if (!lab.value) return "unknown";
+  if (lab.value.status === "maintenance") return "maintenance";
+  if (!isLabOpened.value) return "unopened";
+  return "opened";
+});
 
 function statusClass(status) {
-  if (status === "available") return "bg-emerald-100 text-emerald-700 ring-1 ring-emerald-600/20";
-  if (status === "booked") return "bg-amber-100 text-amber-700 ring-1 ring-amber-600/20";
+  if (status === "opened") return "bg-emerald-100 text-emerald-700 ring-1 ring-emerald-600/20";
+  if (status === "unopened") return "bg-slate-100 text-slate-600 ring-1 ring-slate-600/20";
   if (status === "maintenance") return "bg-rose-100 text-rose-700 ring-1 ring-rose-600/20";
   return "bg-slate-100 text-slate-600 ring-1 ring-slate-600/20";
 }
 
 function statusText(status) {
-  if (status === "available") return "可用";
-  if (status === "booked") return "预约中";
+  if (status === "opened") return "开放中";
+  if (status === "unopened") return "暂未开放";
   if (status === "maintenance") return "维修中";
   return status;
 }
@@ -28,6 +49,11 @@ const labImages = computed(() => {
   const urls = Array.isArray(lab.value.imageUrls) ? lab.value.imageUrls : [];
   if (urls.length) return urls;
   return [lab.value.image].filter(Boolean);
+});
+const avgRating = computed(() => {
+  if (!reviews.value.length) return 0;
+  const sum = reviews.value.reduce((s, x) => s + Number(x.rating || 0), 0);
+  return Math.round((sum / reviews.value.length) * 10) / 10;
 });
 
 const currentImageIndex = ref(0);
@@ -42,55 +68,6 @@ function prevImage() {
 
 function goToImage(index) {
   currentImageIndex.value = index;
-}
-
-// 模拟评论数据
-const comments = ref([
-  {
-    id: 1,
-    userName: "张同学",
-    rating: 5,
-    content: "设备很新，环境很好，老师也很负责任。",
-    time: "2024-03-05 14:30"
-  },
-  {
-    id: 2,
-    userName: "李同学",
-    rating: 4,
-    content: "实验室位置方便，设备齐全，就是有时候人比较多。",
-    time: "2024-03-04 10:15"
-  },
-  {
-    id: 3,
-    userName: "王同学",
-    rating: 5,
-    content: "非常适合做项目，网络速度快，空调温度适宜。",
-    time: "2024-03-03 16:45"
-  }
-]);
-
-const newComment = ref("");
-const newRating = ref(5);
-
-function submitComment() {
-  if (!newComment.value.trim()) return;
-  
-  comments.value.unshift({
-    id: Date.now(),
-    userName: "当前用户",
-    rating: newRating.value,
-    content: newComment.value,
-    time: new Date().toLocaleString('zh-CN', { 
-      year: 'numeric', 
-      month: '2-digit', 
-      day: '2-digit', 
-      hour: '2-digit', 
-      minute: '2-digit' 
-    })
-  });
-  
-  newComment.value = "";
-  newRating.value = 5;
 }
 
 function goToBooking() {
@@ -110,9 +87,19 @@ function goToBookingRecords() {
 
 onMounted(async () => {
   try {
-    lab.value = await getLabApi(labId.value);
+    const [labRes, apps] = await Promise.all([getLabApi(labId.value), listApplicationsApi()]);
+    lab.value = labRes;
+    reviews.value = await listReviewsByResourceApi("LAB", labId.value);
+    const approvedIds = new Set(
+      (apps || [])
+        .filter((x) => x.type === "lab_apply" && x.status === APPLICATION_STATUS.APPROVED)
+        .map((x) => parseLabIdFromDetail(x.detail))
+        .filter(Boolean)
+    );
+    isLabOpened.value = approvedIds.has(labId.value);
   } catch {
     lab.value = null;
+    reviews.value = [];
   }
 });
 </script>
@@ -126,8 +113,8 @@ onMounted(async () => {
         <p class="mt-0.5 text-sm text-slate-600">{{ lab.building }} · {{ lab.college }}</p>
       </div>
       <div class="flex items-center gap-3">
-        <span class="rounded-full px-3 py-1 text-xs font-medium" :class="statusClass(lab.status)">
-          {{ statusText(lab.status) }}
+        <span class="rounded-full px-3 py-1 text-xs font-medium" :class="statusClass(displayStatus)">
+          {{ statusText(displayStatus) }}
         </span>
         <button class="btn-secondary" @click="router.push('/student/labs-devices')">
           返回列表
@@ -234,8 +221,8 @@ onMounted(async () => {
             <div class="flex gap-2">
               <button
                 class="btn-primary flex-1"
-                :disabled="lab.status !== 'available'"
-                :class="lab.status !== 'available' ? 'opacity-50 cursor-not-allowed' : ''"
+                :disabled="displayStatus !== 'opened'"
+                :class="displayStatus !== 'opened' ? 'opacity-50 cursor-not-allowed' : ''"
                 @click="goToBooking"
               >
                 立即预约
@@ -248,72 +235,25 @@ onMounted(async () => {
         <!-- 评论区 -->
         <div class="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
           <div class="flex-shrink-0 px-5 py-3">
-            <h3 class="text-base font-semibold text-slate-900">用户评价</h3>
-          </div>
-          
-          <!-- 发表评论 -->
-          <div class="flex-shrink-0 border-t border-slate-100 px-5 py-3">
-            <div class="flex items-center gap-2">
-              <span class="text-xs text-slate-600">评分</span>
-              <div class="flex gap-1">
-                <button
-                  v-for="star in 5"
-                  :key="star"
-                  @click="newRating = star"
-                  class="text-base transition hover:scale-110"
-                  :class="star <= newRating ? 'text-amber-400' : 'text-slate-300'"
-                >
-                  ★
-                </button>
-              </div>
+            <div class="flex items-center justify-between gap-2">
+              <h3 class="text-base font-semibold text-slate-900">用户评价</h3>
+              <div class="text-xs text-slate-500">平均分：{{ avgRating || "-" }}（{{ reviews.length }}条）</div>
             </div>
-            
-            <textarea
-              v-model="newComment"
-              class="input mt-2 min-h-[50px] resize-none text-sm"
-              placeholder="分享你的使用体验..."
-            ></textarea>
-            
-            <button
-              @click="submitComment"
-              class="btn-primary mt-2 w-full text-sm"
-              :disabled="!newComment.trim()"
-              :class="!newComment.trim() ? 'opacity-50 cursor-not-allowed' : ''"
-            >
-              发表评论
-            </button>
           </div>
-
-          <!-- 评论列表 -->
-          <div class="min-h-0 flex-1 overflow-auto border-t border-slate-100 px-5 py-3">
+          <div v-if="reviews.length === 0" class="flex min-h-0 flex-1 items-center justify-center border-t border-slate-100 px-5 py-6">
+            <div class="text-center text-sm text-slate-500">暂无评价数据</div>
+          </div>
+          <div v-else class="min-h-0 flex-1 overflow-auto border-t border-slate-100 px-5 py-3">
             <div class="space-y-3">
-              <div
-                v-for="comment in comments"
-                :key="comment.id"
-                class="rounded-lg bg-slate-50 p-3"
-              >
-                <div class="flex items-start gap-2">
-                  <div class="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-brand-100 text-sm font-semibold text-brand-700">
-                    {{ comment.userName.charAt(0) }}
-                  </div>
-                  <div class="flex-1 min-w-0">
-                    <div class="flex items-center justify-between">
-                      <span class="text-sm font-medium text-slate-900">{{ comment.userName }}</span>
-                      <div class="flex gap-0.5">
-                        <span
-                          v-for="star in 5"
-                          :key="star"
-                          class="text-xs"
-                          :class="star <= comment.rating ? 'text-amber-400' : 'text-slate-300'"
-                        >
-                          ★
-                        </span>
-                      </div>
-                    </div>
-                    <p class="mt-1 text-sm leading-relaxed text-slate-700">{{ comment.content }}</p>
-                    <p class="mt-1 text-xs text-slate-500">{{ comment.time }}</p>
+              <div v-for="item in reviews" :key="item.id" class="rounded-lg bg-slate-50 p-3">
+                <div class="flex items-center justify-between">
+                  <div class="text-sm font-medium text-slate-900">{{ item.userName || `用户#${item.userId}` }}</div>
+                  <div class="text-amber-500">
+                    <span v-for="star in 5" :key="star" class="text-xs" :class="star <= item.rating ? 'text-amber-400' : 'text-slate-300'">★</span>
                   </div>
                 </div>
+                <p class="mt-1 text-sm text-slate-700">{{ item.content || "（未填写评价内容）" }}</p>
+                <p class="mt-1 text-xs text-slate-500">{{ item.createdAt?.replace("T", " ") || "-" }}</p>
               </div>
             </div>
           </div>

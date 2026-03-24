@@ -17,16 +17,18 @@ import StudentMessages from "../pages/student/StudentMessages.vue";
 
 import TeacherDashboard from "../pages/teacher/TeacherDashboard.vue";
 import TeacherLabs from "../pages/teacher/TeacherLabs.vue";
+import TeacherDevices from "../pages/teacher/TeacherDevices.vue";
 import TeacherSchedule from "../pages/teacher/TeacherSchedule.vue";
 import TeacherRepairs from "../pages/teacher/TeacherRepairs.vue";
 
 import AdminDashboard from "../pages/admin/AdminDashboard.vue";
-import AdminSystem from "../pages/admin/AdminSystem.vue";
 import AdminUsers from "../pages/admin/AdminUsers.vue";
 import AdminAssets from "../pages/admin/AdminAssets.vue";
 import AdminReports from "../pages/admin/AdminReports.vue";
 import AdminLabInfo from "../pages/admin/AdminLabInfo.vue";
 import AdminLabApplications from "../pages/admin/AdminLabApplications.vue";
+import AdminDeviceInfo from "../pages/admin/AdminDeviceInfo.vue";
+import AdminReviews from "../pages/admin/AdminReviews.vue";
 import { getCurrentUser } from "../services/session";
 
 const routes = [
@@ -73,8 +75,12 @@ const routes = [
     meta: { role: "teacher" },
     children: [
       { path: "dashboard", component: TeacherDashboard, meta: { role: "teacher" } },
-      { path: "labs", component: TeacherLabs, meta: { role: "teacher" } },
-      { path: "schedule", component: TeacherSchedule, meta: { role: "teacher" } },
+      { path: "labs", redirect: "/teacher/labs/info" },
+      { path: "labs/info", component: TeacherLabs, meta: { role: "teacher" } },
+      { path: "labs/applications", component: TeacherLabs, meta: { role: "teacher" } },
+      { path: "labs/student-applications", component: TeacherSchedule, meta: { role: "teacher" } },
+      { path: "devices", component: TeacherDevices, meta: { role: "teacher" } },
+      { path: "schedule", redirect: "/teacher/labs/student-applications" },
       { path: "repairs", component: TeacherRepairs, meta: { role: "teacher" } }
     ]
   },
@@ -84,9 +90,12 @@ const routes = [
     meta: { role: "admin" },
     children: [
       { path: "dashboard", component: AdminDashboard, meta: { role: "admin" } },
-      { path: "system", component: AdminSystem, meta: { role: "admin" } },
       { path: "users", component: AdminUsers, meta: { role: "admin" } },
-      { path: "assets", component: AdminAssets, meta: { role: "admin" } },
+      { path: "devices/info", component: AdminDeviceInfo, meta: { role: "admin" } },
+      { path: "devices/applications", component: AdminAssets, meta: { role: "admin" } },
+      { path: "reviews", component: AdminReviews, meta: { role: "admin" } },
+      { path: "assets", redirect: "/admin/devices/applications" },
+      { path: "system", redirect: "/admin/dashboard" },
       { path: "reports", component: AdminReports, meta: { role: "admin" } },
       { path: "labs/info", component: AdminLabInfo, meta: { role: "admin" } },
       { path: "labs/applications", component: AdminLabApplications, meta: { role: "admin" } }

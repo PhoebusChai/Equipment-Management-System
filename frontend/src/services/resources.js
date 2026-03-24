@@ -90,3 +90,24 @@ export async function listDevicesApi(labId) {
   }));
 }
 
+export async function createDeviceApi(payload) {
+  const res = await http.post("/devices", {
+    labId: payload.labId,
+    deviceCode: payload.deviceCode,
+    name: payload.name,
+    category: payload.category || "",
+    location: payload.location || "",
+    status: String(payload.status || "AVAILABLE").toUpperCase()
+  });
+  const x = res.data || {};
+  return {
+    id: x.id,
+    labId: x.labId,
+    deviceCode: x.deviceCode,
+    name: x.name,
+    category: x.category || "",
+    location: x.location || "-",
+    status: fromApiResourceStatus(x.status)
+  };
+}
+

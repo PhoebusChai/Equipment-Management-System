@@ -8,6 +8,11 @@ export const BOOKING_STATUS = {
   COMPLETED: "completed"
 };
 
+export const RESOURCE_TYPE = {
+  LAB: "lab",
+  DEVICE: "device"
+};
+
 function toApiStatus(status) {
   const s = String(status || "").toLowerCase();
   if (s === BOOKING_STATUS.APPROVED) return "APPROVED";
@@ -27,11 +32,14 @@ function fromApiStatus(status) {
 }
 
 function toApiType(type) {
-  return String(type || "").toUpperCase() === "LAB" ? "LAB" : "DEVICE";
+  const normalized = String(type || "").toUpperCase();
+  if (normalized === "LAB") return "LAB";
+  if (normalized === "DEVICE") return "DEVICE";
+  throw new Error("resourceType 仅支持 lab/device");
 }
 
 function fromApiType(type) {
-  return String(type || "").toUpperCase() === "LAB" ? "lab" : "device";
+  return String(type || "").toUpperCase() === "LAB" ? RESOURCE_TYPE.LAB : RESOURCE_TYPE.DEVICE;
 }
 
 function mapBooking(x) {
